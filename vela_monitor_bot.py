@@ -42,6 +42,29 @@
 #      grupo dele — rompimento sem seguimento tende a invalidar o movimento
 #      e antecipar uma reversão forte na direção contrária.
 #
+#   7) TERMÔMETRO DE FASE DE CICLO (mercado, uma vez por rodada) — compara a
+#      performance de um conjunto de memecoins conhecidas com o BTC e com o
+#      watchlist de alts. A ideia, de uma live, é que bull market roda em
+#      ordem (BTC/ETH primeiro, depois alts de maior porte, memecoins por
+#      último) — memecoins muito à frente dos outros dois grupos ao mesmo
+#      tempo tende a marcar fase mais avançada/especulativa do movimento.
+#
+#  DIAGNÓSTICO E CONSULTA SOB DEMANDA (só nas execuções manuais, pelo botão
+#  "Run workflow" no GitHub Actions):
+#
+#   - Diagnóstico de proximidade: mesmo quando nenhum sinal de verdade
+#     dispara, a varredura calcula o quão perto cada moeda está de bater
+#     algum dos critérios acima (ex.: "RSI a 6 pontos do gatilho de
+#     exaustão", "a 1,8% da zona de Fibonacci") e manda um resumo com as
+#     mais próximas — pra você filtrar o que vale acompanhar de perto.
+#
+#   - Consulta por moeda: o campo opcional "symbol" do Run workflow permite
+#     pedir uma análise específica de uma moeda (ex.: SOLUSDT) — roda todos
+#     os checks nela na hora, mostra o que está mais perto de disparar e um
+#     pouco de contexto (força relativa contra o BTC). É uma leitura
+#     automática baseada nas mesmas regras de sempre, não uma opinião gerada
+#     por um modelo de IA (o script não chama nenhum modelo de linguagem).
+#
 #  Watchlist dinâmica: em vez de uma lista fixa, a varredura busca os
 #  TOP_N_SYMBOLS pares USDT de maior volume na Binance a cada rodada (ideia
 #  de uma live do canal: a IA dele varre um universo grande de moedas, não
@@ -149,11 +172,30 @@ VOLUME_TIER_LARGE_PCT = 0.34   # terço de maior volume do watchlist
 DOMINANCE_LOOKBACK_DAYS = 7
 DOMINANCE_DIVERGENCE_PP = 6.0  # diferença mínima (pontos percentuais) pra alertar
 
+# --- Termômetro de fase de ciclo (mania de memecoin) — lista curada porque a
+# Binance não classifica "memecoin" como categoria; pares que não existirem
+# mais (ou ainda não existirem) são simplesmente pulados na busca ---
+MEME_COIN_SYMBOLS = [
+    "DOGEUSDT", "SHIBUSDT", "PEPEUSDT", "FLOKIUSDT", "BONKUSDT",
+    "WIFUSDT", "MEMEUSDT", "1000SATSUSDT", "ORDIUSDT",
+]
+CYCLE_LOOKBACK_DAYS = DOMINANCE_LOOKBACK_DAYS  # mesmo período do check de dominância
+MEME_MANIA_DIVERGENCE_PP = 12.0  # memecoins precisam estar bem à frente pra soar o alerta
+
 # --- Reversão por rompimento falho (swing) ---
 FAILED_BREAK_LOOKBACK = 6              # candles recentes onde procuramos o rompimento
 FAILED_BREAK_PENETRATION_PCT = 0.001   # rompimento mínimo (0.1%) além do nível de referência
 FAILED_BREAK_RECOVERY_PCT = 0.001      # recuperação mínima (0.1%) de volta pro outro lado
 FAILED_BREAK_VOLUME_RATIO = 1.3        # volume mínimo (x média) no rompimento ou na recuperação
+
+# --- Diagnóstico de proximidade (near-miss) — só usado nas execuções manuais,
+# pra mostrar quais moedas estão perto de bater algum critério mesmo sem ter
+# disparado um sinal de verdade ainda ---
+PULLBACK_DIAG_MAX_PCT = 0.025      # até 2,5% da zona fib já entra no diagnóstico
+EXHAUSTION_DIAG_RSI_BAND = 15      # RSI dentro de 15 pontos do gatilho (70-85 ou 15-30)
+SCALP_DIAG_RSI_BAND = 10           # RSI dentro de 10 pontos do gatilho de scalp
+REVERSAL_DRAWDOWN_DIAG_BAND = 0.05  # até 5 pontos percentuais abaixo do drawdown mínimo
+DIAGNOSTIC_TOP_N = 12               # quantas moedas entram no resumo de diagnóstico
 
 BINANCE_BASE = "https://api.binance.com"
 TELEGRAM_BASE = "https://api.telegram.org"
@@ -503,9 +545,7 @@ def check_exhaustion_climax(symbol, candles):
 # SINAL 3 — CASCATA DE RSI (scalp)
 # ----------------------------------------------------------------------------
 
-def check_scalp_cascade(symbol):
-    candles_15m = fetch_klines(symbol, "15m", 100)
-    candles_1h = fetch_klines(symbol, "1h", 100)
+def check_scalp_cascade(symbol, candles_15m, candles_1h):
     rsi_15m = compute_rsi([c["close"] for c in candles_15m])
     rsi_1h = compute_rsi([c["close"] for c in candles_1h])
     if rsi_15m is None or rsi_1h is None:
@@ -683,11 +723,15 @@ def pct_return(candles_d, days=DOMINANCE_LOOKBACK_DAYS):
     return (end - start) / start * 100
 
 
-def check_dominance_altseason(watchlist):
+def compute_market_returns(watchlist):
+    """
+    Calcula o retorno do BTC e a média de retorno das alts do watchlist nos
+    últimos DOMINANCE_LOOKBACK_DAYS dias. Centralizado aqui porque tanto o
+    check de dominância quanto o termômetro de fase de ciclo (mais abaixo)
+    precisam desses dois números, e assim evita buscar tudo de novo duas vezes.
+    """
     btc_candles = fetch_klines("BTCUSDT", "1d", DOMINANCE_LOOKBACK_DAYS + 5)
     btc_return = pct_return(btc_candles)
-    if btc_return is None:
-        return None
 
     alt_returns = []
     for symbol in watchlist:
@@ -700,10 +744,14 @@ def check_dominance_altseason(watchlist):
                 alt_returns.append(r)
         except Exception:
             continue
+    avg_alt_return = sum(alt_returns) / len(alt_returns) if alt_returns else None
 
-    if not alt_returns:
+    return btc_return, avg_alt_return
+
+
+def check_dominance_altseason(btc_return, avg_alt_return):
+    if btc_return is None or avg_alt_return is None:
         return None
-    avg_alt_return = sum(alt_returns) / len(alt_returns)
     diff = btc_return - avg_alt_return
 
     if abs(diff) < DOMINANCE_DIVERGENCE_PP:
@@ -830,6 +878,405 @@ def check_failed_breakout_reversal(symbol, candles):
 
 
 # ----------------------------------------------------------------------------
+# SINAL 7 — TERMÔMETRO DE FASE DE CICLO (mania de memecoin, mercado)
+# ----------------------------------------------------------------------------
+
+def check_cycle_phase(btc_return, avg_alt_return):
+    """
+    Camada extra sobre a comparação BTC x alts já feita na dominância: mede
+    a performance média de um conjunto de memecoins conhecidas nos últimos
+    dias e compara com o BTC e com o watchlist de alts "normais". A ideia,
+    tirada de uma das lives, é que um bull market roda em ordem: primeiro
+    BTC/ETH lideram, depois o capital rotaciona pras alts de maior porte, e
+    só then pras memecoins puramente especulativas — memecoins disparando
+    muito à frente dos dois outros grupos ao mesmo tempo tende a marcar uma
+    fase mais avançada/exagerada do movimento, não o início dele.
+    """
+    meme_returns = []
+    for symbol in MEME_COIN_SYMBOLS:
+        try:
+            c = fetch_klines(symbol, "1d", CYCLE_LOOKBACK_DAYS + 5)
+            r = pct_return(c, days=CYCLE_LOOKBACK_DAYS)
+            if r is not None:
+                meme_returns.append(r)
+        except Exception:
+            continue
+    if not meme_returns or btc_return is None or avg_alt_return is None:
+        return None
+
+    avg_meme_return = sum(meme_returns) / len(meme_returns)
+    diff_vs_btc = avg_meme_return - btc_return
+    diff_vs_alts = avg_meme_return - avg_alt_return
+
+    if diff_vs_btc < MEME_MANIA_DIVERGENCE_PP or diff_vs_alts < MEME_MANIA_DIVERGENCE_PP:
+        return None
+
+    return {
+        "symbol": "MERCADO", "estilo": "MACRO", "acao": "OBSERVAR",
+        "titulo": "Termômetro de ciclo — mania de memecoin",
+        "timeframe": f"1d, {CYCLE_LOOKBACK_DAYS}d",
+        "detalhes": [
+            f"Retorno médio memecoins monitoradas ({CYCLE_LOOKBACK_DAYS}d): {avg_meme_return:+.1f}%",
+            f"Retorno BTC ({CYCLE_LOOKBACK_DAYS}d): {btc_return:+.1f}%",
+            f"Retorno médio das alts do watchlist ({CYCLE_LOOKBACK_DAYS}d): {avg_alt_return:+.1f}%",
+        ],
+        "explicacao": (
+            f"Memecoins subindo bem mais ({avg_meme_return:+.1f}%) que o BTC e que as "
+            f"alts do watchlist ao mesmo tempo costuma marcar uma fase mais avançada "
+            f"e especulativa do movimento de alta — o capital já passou de BTC pras "
+            f"alts principais e agora tá indo pra ativos de puro hype, o que "
+            f"historicamente acontece mais perto do fim de um ciclo do que no início."
+        ),
+        "aviso": (
+            "Não é sinal de topo garantido, é um alerta de fase de ciclo pra aumentar "
+            "a cautela (ex.: realizar parciais, apertar stops) — não uma recomendação "
+            "de sair do mercado."
+        ),
+    }
+
+
+# ----------------------------------------------------------------------------
+# DIAGNÓSTICO DE PROXIMIDADE (near-miss) — sob demanda, execução manual
+#
+# Cada função abaixo espelha um dos checks de sinal acima, mas em vez de só
+# dizer sim/não, calcula o quão perto a moeda está de bater o critério real.
+# Só retorna algo quando está numa faixa "interessante": nem já batendo o
+# critério (aí já teria virado sinal de verdade lá em cima) nem longe demais
+# pra valer a pena mencionar.
+# ----------------------------------------------------------------------------
+
+def diagnose_pullback(candles):
+    if len(candles) < (2 * PIVOT_LEN + 10):
+        return None
+    pivot_highs, pivot_lows = find_pivots(candles, PIVOT_LEN)
+    leg = last_impulse_leg(pivot_highs, pivot_lows)
+    if leg is None:
+        return None
+    price_now = candles[-1]["close"]
+    fib_price = fib_level_price(leg, FIB_LEVEL)
+    dist_pct = abs(price_now - fib_price) / fib_price
+    if dist_pct <= FIB_TOLERANCE or dist_pct > PULLBACK_DIAG_MAX_PCT:
+        return None
+    structure_ok, _ = ascending_or_descending_bottoms(leg, pivot_highs, pivot_lows)
+    estrutura_txt = "estrutura já confirmando" if structure_ok else "estrutura ainda não confirmou fundos/topos"
+    lado = "compra" if leg["direction"] == "alta" else "venda"
+    return {
+        "tipo": "Pullback",
+        "score": dist_pct / PULLBACK_DIAG_MAX_PCT,
+        "texto": (f"Pullback ({lado}): preço a {dist_pct * 100:.1f}% da zona Fibonacci "
+                  f"0.382 ({fib_price:.4g}) — {estrutura_txt}."),
+    }
+
+
+def diagnose_exhaustion(candles):
+    closes = [c["close"] for c in candles]
+    rsi = compute_rsi(closes)
+    _, _, vol_ratio = volume_status(candles)
+    if rsi is None:
+        return None
+    if rsi >= CLIMAX_RSI_HIGH or rsi <= CLIMAX_RSI_LOW:
+        if vol_ratio is not None and vol_ratio >= CLIMAX_VOLUME_RATIO:
+            return None  # já teria virado sinal de verdade
+    if rsi >= CLIMAX_RSI_HIGH - EXHAUSTION_DIAG_RSI_BAND:
+        dist = max(0.0, CLIMAX_RSI_HIGH - rsi)
+        lado = "topo"
+    elif rsi <= CLIMAX_RSI_LOW + EXHAUSTION_DIAG_RSI_BAND:
+        dist = max(0.0, rsi - CLIMAX_RSI_LOW)
+        lado = "fundo"
+    else:
+        return None
+    vol_txt = f"{vol_ratio:.1f}x a média" if vol_ratio is not None else "sem dado de volume"
+    return {
+        "tipo": "Clímax de exaustão",
+        "score": dist / EXHAUSTION_DIAG_RSI_BAND,
+        "texto": (f"Exaustão de {lado}: RSI {rsi:.0f} (faltam ~{dist:.0f} pontos pro "
+                  f"gatilho), volume {vol_txt}."),
+    }
+
+
+def diagnose_scalp(rsi_15m, rsi_1h):
+    if rsi_15m is None or rsi_1h is None:
+        return None
+    if rsi_15m <= SCALP_RSI_OVERSOLD and rsi_1h <= SCALP_RSI_OVERSOLD:
+        return None  # já teria virado sinal de verdade
+    if rsi_15m >= SCALP_RSI_OVERBOUGHT and rsi_1h >= SCALP_RSI_OVERBOUGHT:
+        return None
+    algum_sobrevenda = rsi_15m <= SCALP_RSI_OVERSOLD or rsi_1h <= SCALP_RSI_OVERSOLD
+    outro_perto_sobrevenda = (rsi_15m <= SCALP_RSI_OVERSOLD + SCALP_DIAG_RSI_BAND
+                               and rsi_1h <= SCALP_RSI_OVERSOLD + SCALP_DIAG_RSI_BAND)
+    if algum_sobrevenda and outro_perto_sobrevenda:
+        dist = max(abs(rsi_15m - SCALP_RSI_OVERSOLD), abs(rsi_1h - SCALP_RSI_OVERSOLD))
+        return {
+            "tipo": "Cascata de RSI",
+            "score": dist / SCALP_DIAG_RSI_BAND,
+            "texto": (f"Cascata scalp (sobrevenda): RSI 15m {rsi_15m:.0f} / RSI 1h "
+                      f"{rsi_1h:.0f} — só falta o outro timeframe confirmar."),
+        }
+    algum_sobrecompra = rsi_15m >= SCALP_RSI_OVERBOUGHT or rsi_1h >= SCALP_RSI_OVERBOUGHT
+    outro_perto_sobrecompra = (rsi_15m >= SCALP_RSI_OVERBOUGHT - SCALP_DIAG_RSI_BAND
+                                and rsi_1h >= SCALP_RSI_OVERBOUGHT - SCALP_DIAG_RSI_BAND)
+    if algum_sobrecompra and outro_perto_sobrecompra:
+        dist = max(abs(SCALP_RSI_OVERBOUGHT - rsi_15m), abs(SCALP_RSI_OVERBOUGHT - rsi_1h))
+        return {
+            "tipo": "Cascata de RSI",
+            "score": dist / SCALP_DIAG_RSI_BAND,
+            "texto": (f"Cascata scalp (sobrecompra): RSI 15m {rsi_15m:.0f} / RSI 1h "
+                      f"{rsi_1h:.0f} — só falta o outro timeframe confirmar."),
+        }
+    return None
+
+
+def diagnose_bottom_fishing(candles_d, candles_w):
+    if len(candles_w) < 20 or len(candles_d) < 20:
+        return None
+    ath = max(c["high"] for c in candles_w)
+    price_now = candles_d[-1]["close"]
+    drawdown = (ath - price_now) / ath
+    if drawdown >= BOTTOM_FISHING_MIN_DRAWDOWN:
+        return None  # já entrou na faixa (se a estrutura confirmar, já virou sinal de verdade)
+    band_start = BOTTOM_FISHING_MIN_DRAWDOWN - REVERSAL_DRAWDOWN_DIAG_BAND
+    if drawdown < band_start:
+        return None
+    dist = BOTTOM_FISHING_MIN_DRAWDOWN - drawdown
+    return {
+        "tipo": "Bottom fishing",
+        "score": dist / REVERSAL_DRAWDOWN_DIAG_BAND,
+        "texto": (f"Bottom fishing: {drawdown * 100:.0f}% abaixo da máxima histórica "
+                  f"(faltam ~{dist * 100:.1f}pp pra entrar na zona de "
+                  f"{BOTTOM_FISHING_MIN_DRAWDOWN * 100:.0f}%+)."),
+    }
+
+
+def diagnose_light_reversal(candles_d):
+    lookback = min(len(candles_d), LIGHT_REVERSAL_LOOKBACK_DAYS)
+    if lookback < 30:
+        return None
+    window = candles_d[-lookback:]
+    pivot_highs, _ = find_pivots(window, LIGHT_REVERSAL_PIVOT_LEN)
+    if not pivot_highs:
+        return None
+    _, swing_high_price = max(pivot_highs, key=lambda p: p[1])
+    price_now = window[-1]["close"]
+    drawdown = (swing_high_price - price_now) / swing_high_price
+    if LIGHT_REVERSAL_MIN_DRAWDOWN <= drawdown < LIGHT_REVERSAL_MAX_DRAWDOWN:
+        return None  # já na faixa de sinal de verdade (se a estrutura confirmar)
+    band_start = LIGHT_REVERSAL_MIN_DRAWDOWN - REVERSAL_DRAWDOWN_DIAG_BAND
+    if band_start <= drawdown < LIGHT_REVERSAL_MIN_DRAWDOWN:
+        dist = LIGHT_REVERSAL_MIN_DRAWDOWN - drawdown
+        return {
+            "tipo": "Reversão com base",
+            "score": dist / REVERSAL_DRAWDOWN_DIAG_BAND,
+            "texto": (f"Reversão com base: {drawdown * 100:.0f}% abaixo do topo dos "
+                      f"últimos {lookback}d (faltam ~{dist * 100:.1f}pp pra entrar na "
+                      f"zona de {LIGHT_REVERSAL_MIN_DRAWDOWN * 100:.0f}%+)."),
+        }
+    return None
+
+
+def diagnose_failed_break(candles):
+    if len(candles) < (2 * PIVOT_LEN + FAILED_BREAK_LOOKBACK + 5):
+        return None
+    pivot_highs, pivot_lows = find_pivots(candles, PIVOT_LEN)
+    price_now = candles[-1]["close"]
+    _, avg_vol, _ = volume_status(candles)
+    if not avg_vol:
+        return None
+    recent_window = candles[-FAILED_BREAK_LOOKBACK:]
+    max_vol_ratio = max((c["volume"] / avg_vol) for c in recent_window)
+
+    if pivot_lows:
+        ref_idx, ref_price = pivot_lows[-1]
+        if ref_idx < len(candles) - FAILED_BREAK_LOOKBACK:
+            broke = any(c["low"] < ref_price * (1 - FAILED_BREAK_PENETRATION_PCT) for c in recent_window)
+            recovered = price_now > ref_price * (1 + FAILED_BREAK_RECOVERY_PCT)
+            if broke and not (recovered and max_vol_ratio >= FAILED_BREAK_VOLUME_RATIO):
+                faltando = []
+                if not recovered:
+                    faltando.append("ainda não recuperou de volta pra cima do suporte")
+                if max_vol_ratio < FAILED_BREAK_VOLUME_RATIO:
+                    faltando.append(f"volume só {max_vol_ratio:.1f}x a média (precisa {FAILED_BREAK_VOLUME_RATIO:.1f}x)")
+                return {
+                    "tipo": "Rompimento falho (suporte)",
+                    "score": 0.3,
+                    "texto": f"Rompeu o suporte em {ref_price:.4g} mas falta confirmar: {', '.join(faltando)}.",
+                }
+    if pivot_highs:
+        ref_idx, ref_price = pivot_highs[-1]
+        if ref_idx < len(candles) - FAILED_BREAK_LOOKBACK:
+            broke = any(c["high"] > ref_price * (1 + FAILED_BREAK_PENETRATION_PCT) for c in recent_window)
+            recovered = price_now < ref_price * (1 - FAILED_BREAK_RECOVERY_PCT)
+            if broke and not (recovered and max_vol_ratio >= FAILED_BREAK_VOLUME_RATIO):
+                faltando = []
+                if not recovered:
+                    faltando.append("ainda não devolveu pra dentro da resistência")
+                if max_vol_ratio < FAILED_BREAK_VOLUME_RATIO:
+                    faltando.append(f"volume só {max_vol_ratio:.1f}x a média (precisa {FAILED_BREAK_VOLUME_RATIO:.1f}x)")
+                return {
+                    "tipo": "Rompimento falho (resistência)",
+                    "score": 0.3,
+                    "texto": f"Rompeu a resistência em {ref_price:.4g} mas falta confirmar: {', '.join(faltando)}.",
+                }
+    return None
+
+
+def build_diagnostic_message(diagnosticos):
+    linhas = ["🔎 VELA MONITOR — DIAGNÓSTICO (mais perto de um setup)", ""]
+    if not diagnosticos:
+        linhas.append(
+            "Nenhuma moeda do watchlist está particularmente perto de bater algum "
+            "critério agora — ou o mercado está sem setups se formando, ou tudo já "
+            "disparou como sinal de verdade lá em cima."
+        )
+    else:
+        ordenados = sorted(diagnosticos, key=lambda d: d["score"])[:DIAGNOSTIC_TOP_N]
+        for d in ordenados:
+            sym = d["symbol"].replace("USDT", "/USDT")
+            linhas.append(f"• {sym} — {d['texto']}")
+    linhas.append("")
+    linhas.append(
+        "Isso é uma régua de proximidade pras mesmas regras dos sinais de verdade "
+        "— não é um alerta de entrada, é pra você filtrar o que vale a pena "
+        "acompanhar de perto."
+    )
+    return "\n".join(linhas)
+
+
+# ----------------------------------------------------------------------------
+# CONSULTA POR MOEDA — sob demanda, execução manual (campo "symbol")
+# ----------------------------------------------------------------------------
+
+def normalize_symbol(raw):
+    s = (raw or "").strip().upper().replace(" ", "")
+    if not s:
+        return s
+    if not s.endswith("USDT"):
+        s = s + "USDT"
+    return s
+
+
+def build_symbol_deep_dive(symbol_input):
+    symbol = normalize_symbol(symbol_input)
+    if not symbol:
+        return "⚠️ Não veio nenhuma moeda no campo de análise."
+
+    try:
+        candles_4h = fetch_klines(symbol, INTERVAL, KLINES_LIMIT)
+        candles_d = fetch_klines(symbol, "1d", 200)
+        candles_w = fetch_klines(symbol, "1w", 1000)
+        candles_15m = fetch_klines(symbol, "15m", 100)
+        candles_1h = fetch_klines(symbol, "1h", 100)
+    except urllib.error.HTTPError as e:
+        return (f"⚠️ Não consegui buscar dados de {symbol} na Binance (erro {e.code}). "
+                f"Confira se o par existe (ex.: SOLUSDT, XRPUSDT).")
+    except Exception as e:
+        return f"⚠️ Erro buscando dados de {symbol}: {e}"
+
+    if not candles_4h:
+        return f"⚠️ Não veio nenhum candle 4h pra {symbol} — confira se o par existe."
+
+    price_now = candles_4h[-1]["close"]
+    linhas = [f"🧭 VELA MONITOR — ANÁLISE — {symbol.replace('USDT', '/USDT')}", "",
+              f"Preço agora: {price_now:.4g}"]
+
+    sinais_ativos = []
+    for fn in (check_pullback, check_exhaustion_climax, check_failed_breakout_reversal):
+        try:
+            sig = fn(symbol, candles_4h)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
+
+    rsi_15m = rsi_1h = None
+    if candles_15m and candles_1h:
+        try:
+            sig = check_scalp_cascade(symbol, candles_15m, candles_1h)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
+        rsi_15m = compute_rsi([c["close"] for c in candles_15m])
+        rsi_1h = compute_rsi([c["close"] for c in candles_1h])
+
+    if candles_d and candles_w:
+        for fn in (check_bottom_fishing, check_light_reversal):
+            try:
+                sig = fn(symbol, candles_d, candles_w) if fn is check_bottom_fishing else fn(symbol, candles_d)
+                if sig:
+                    sinais_ativos.append(sig)
+            except Exception:
+                pass
+
+    diagnosticos = [d for d in (
+        diagnose_pullback(candles_4h),
+        diagnose_exhaustion(candles_4h),
+        diagnose_failed_break(candles_4h),
+        diagnose_scalp(rsi_15m, rsi_1h) if (rsi_15m is not None and rsi_1h is not None) else None,
+        diagnose_bottom_fishing(candles_d, candles_w) if (candles_d and candles_w) else None,
+        diagnose_light_reversal(candles_d) if candles_d else None,
+    ) if d]
+
+    contexto_txt = None
+    if symbol != "BTCUSDT" and candles_d:
+        try:
+            btc_candles = fetch_klines("BTCUSDT", "1d", DOMINANCE_LOOKBACK_DAYS + 5)
+            btc_ret = pct_return(btc_candles)
+            moeda_ret = pct_return(candles_d)
+            if btc_ret is not None and moeda_ret is not None:
+                relacao = "mais forte" if moeda_ret > btc_ret else "mais fraca"
+                contexto_txt = (
+                    f"Nos últimos {DOMINANCE_LOOKBACK_DAYS}d essa moeda fez {moeda_ret:+.1f}% "
+                    f"contra {btc_ret:+.1f}% do BTC — está {relacao} que o BTC no momento."
+                )
+        except Exception:
+            pass
+
+    linhas.append("")
+    if sinais_ativos:
+        linhas.append("✅ Sinal(is) ativo(s) agora:")
+        for sig in sinais_ativos:
+            linhas.append(f"  • {sig['titulo']} ({sig['estilo']}, {sig['acao']})")
+        linhas.append("")
+        linhas.append("Mensagem completa do sinal mais relevante:")
+        linhas.append("")
+        linhas.append(format_signal_message(sinais_ativos[0]))
+    else:
+        linhas.append("Nenhum sinal de verdade ativo agora nessa moeda.")
+        if diagnosticos:
+            ordenados = sorted(diagnosticos, key=lambda d: d["score"])
+            melhor = ordenados[0]
+            linhas.append("")
+            linhas.append(f"Setup mais próximo de fazer sentido agora: {melhor['tipo']}.")
+            linhas.append(melhor["texto"])
+            if len(ordenados) > 1:
+                linhas.append("")
+                linhas.append("Outros pontos de atenção:")
+                for d in ordenados[1:]:
+                    linhas.append(f"  • {d['texto']}")
+        else:
+            linhas.append("")
+            linhas.append(
+                "Também não achei nada perto de disparar — RSI neutro, sem correção de "
+                "Fibonacci relevante, sem drawdown expressivo. Moeda em zona neutra no "
+                "momento."
+            )
+
+    if contexto_txt:
+        linhas.append("")
+        linhas.append(f"Contexto: {contexto_txt}")
+
+    linhas.append("")
+    linhas.append(
+        "⚠️ Isso é uma leitura automática baseada nas mesmas regras dos sinais do bot "
+        "— não é uma opinião gerada por um modelo de IA (o script não chama nenhum "
+        "modelo de linguagem), é a aplicação mecânica das mesmas regras, só que "
+        "explicada. E o setup que faz mais sentido muda conforme o cenário de mercado "
+        "muda — não é uma recomendação fixa."
+    )
+    return "\n".join(linhas)
+
+
+# ----------------------------------------------------------------------------
 # MENSAGEM E ENVIO PRO TELEGRAM
 # ----------------------------------------------------------------------------
 
@@ -870,9 +1317,10 @@ def build_test_message():
         f"Tipos de sinal ativos agora: Pullback (swing), Clímax de exaustão, "
         f"Cascata de RSI (scalp), Bottom fishing (posição), Reversão de "
         f"tendência com base (posição/swing), Reversão por rompimento falho "
-        f"(swing) e Dominância BTC/altseason (mercado). Varredura dinâmica "
-        f"dos {TOP_N_SYMBOLS} pares USDT de maior volume na Binance, não "
-        f"mais uma lista fixa.",
+        f"(swing), Dominância BTC/altseason (mercado) e Termômetro de fase "
+        f"de ciclo — mania de memecoin (mercado). Varredura dinâmica dos "
+        f"{TOP_N_SYMBOLS} pares USDT de maior volume na Binance, não mais "
+        f"uma lista fixa.",
         "",
         "Exemplo de como um alerta de pullback se parece:",
         "🟢 VELA MONITOR — SWING — Pullback (alta, 67000 → 82000)",
@@ -889,6 +1337,12 @@ def build_test_message():
         "manualmente pelo botão \"Run workflow\" no GitHub. A varredura "
         "automática de hora em hora só avisa quando encontra um setup de "
         "verdade.",
+        "",
+        "Também nas execuções manuais: logo depois da varredura chega um "
+        "diagnóstico com as moedas mais perto de bater algum critério (mesmo "
+        "sem ter disparado ainda), e se você preencher o campo \"symbol\" do "
+        "Run workflow (ex.: SOLUSDT) chega também uma análise detalhada só "
+        "dessa moeda.",
     ])
 
 
@@ -916,19 +1370,25 @@ def send_telegram_message(text):
 
 
 # ----------------------------------------------------------------------------
-# ANÁLISE POR MOEDA — roda os 4 checks por-moeda e junta os sinais
+# ANÁLISE POR MOEDA — roda os checks por-moeda, junta os sinais e também
+# coleta diagnósticos de proximidade (near-miss) pra quem não disparou nada
 # ----------------------------------------------------------------------------
 
 def analyze_symbol(symbol, tier=None):
     sinais = []
+    diagnosticos = []
     candles_4h = fetch_klines(symbol, INTERVAL, KLINES_LIMIT)
     if len(candles_4h) < (2 * PIVOT_LEN + 10):
-        return sinais
+        return sinais, diagnosticos
 
     try:
         sig = check_pullback(symbol, candles_4h)
         if sig:
             sinais.append(sig)
+        else:
+            diag = diagnose_pullback(candles_4h)
+            if diag:
+                diagnosticos.append({"symbol": symbol, **diag})
     except Exception as e:
         print(f"  {symbol}: erro no check de pullback ({e})")
 
@@ -936,22 +1396,45 @@ def analyze_symbol(symbol, tier=None):
         sig = check_exhaustion_climax(symbol, candles_4h)
         if sig:
             sinais.append(sig)
+        else:
+            diag = diagnose_exhaustion(candles_4h)
+            if diag:
+                diagnosticos.append({"symbol": symbol, **diag})
     except Exception as e:
         print(f"  {symbol}: erro no check de exaustão ({e})")
-
-    try:
-        sig = check_scalp_cascade(symbol)
-        if sig:
-            sinais.append(sig)
-    except Exception as e:
-        print(f"  {symbol}: erro no check de cascata scalp ({e})")
 
     try:
         sig = check_failed_breakout_reversal(symbol, candles_4h)
         if sig:
             sinais.append(sig)
+        else:
+            diag = diagnose_failed_break(candles_4h)
+            if diag:
+                diagnosticos.append({"symbol": symbol, **diag})
     except Exception as e:
         print(f"  {symbol}: erro no check de reversão por rompimento falho ({e})")
+
+    # cascata de RSI usa 15m/1h — busca uma vez só e reaproveita pro diagnóstico
+    try:
+        candles_15m = fetch_klines(symbol, "15m", 100)
+        candles_1h = fetch_klines(symbol, "1h", 100)
+    except Exception as e:
+        print(f"  {symbol}: erro ao buscar candles 15m/1h ({e})")
+        candles_15m, candles_1h = [], []
+
+    if candles_15m and candles_1h:
+        try:
+            sig = check_scalp_cascade(symbol, candles_15m, candles_1h)
+            if sig:
+                sinais.append(sig)
+            else:
+                rsi_15m = compute_rsi([c["close"] for c in candles_15m])
+                rsi_1h = compute_rsi([c["close"] for c in candles_1h])
+                diag = diagnose_scalp(rsi_15m, rsi_1h)
+                if diag:
+                    diagnosticos.append({"symbol": symbol, **diag})
+        except Exception as e:
+            print(f"  {symbol}: erro no check de cascata scalp ({e})")
 
     # bottom fishing e reversão leve compartilham os candles diário/semanal
     try:
@@ -966,6 +1449,10 @@ def analyze_symbol(symbol, tier=None):
             sig = check_bottom_fishing(symbol, candles_d, candles_w, tier=tier)
             if sig:
                 sinais.append(sig)
+            else:
+                diag = diagnose_bottom_fishing(candles_d, candles_w)
+                if diag:
+                    diagnosticos.append({"symbol": symbol, **diag})
         except Exception as e:
             print(f"  {symbol}: erro no check de bottom fishing ({e})")
 
@@ -973,10 +1460,14 @@ def analyze_symbol(symbol, tier=None):
             sig = check_light_reversal(symbol, candles_d, tier=tier)
             if sig:
                 sinais.append(sig)
+            else:
+                diag = diagnose_light_reversal(candles_d)
+                if diag:
+                    diagnosticos.append({"symbol": symbol, **diag})
         except Exception as e:
             print(f"  {symbol}: erro no check de reversão leve ({e})")
 
-    return sinais
+    return sinais, diagnosticos
 
 
 # ----------------------------------------------------------------------------
@@ -1006,9 +1497,10 @@ def main():
           f"{len(watchlist)} moedas (pullback + exaustão + cascata scalp + "
           f"bottom fishing + reversão leve + rompimento falho)...")
     encontrados = 0
+    todos_diagnosticos = []
     for symbol in watchlist:
         try:
-            sinais = analyze_symbol(symbol, tier=tiers.get(symbol))
+            sinais, diagnosticos = analyze_symbol(symbol, tier=tiers.get(symbol))
         except Exception as e:
             print(f"  {symbol}: erro na análise ({e})")
             continue
@@ -1022,10 +1514,18 @@ def main():
                 print("  -> enviado pro Telegram" if ok else "  -> FALHOU ao enviar")
         else:
             print(f"  {symbol}: sem setup no momento")
+        todos_diagnosticos.extend(diagnosticos)
 
-    print(f"[{datetime.now(timezone.utc).isoformat()}] Verificando dominância BTC/altseason...")
+    print(f"[{datetime.now(timezone.utc).isoformat()}] Verificando dominância BTC/altseason "
+          f"e termômetro de ciclo...")
     try:
-        dom_sig = check_dominance_altseason(watchlist)
+        btc_return, avg_alt_return = compute_market_returns(watchlist)
+    except Exception as e:
+        print(f"  erro calculando retornos de mercado ({e})")
+        btc_return, avg_alt_return = None, None
+
+    try:
+        dom_sig = check_dominance_altseason(btc_return, avg_alt_return)
         if dom_sig:
             encontrados += 1
             msg = format_signal_message(dom_sig)
@@ -1037,6 +1537,39 @@ def main():
             print("  sem divergência relevante entre BTC e as alts no momento")
     except Exception as e:
         print(f"  erro no check de dominância ({e})")
+
+    try:
+        cycle_sig = check_cycle_phase(btc_return, avg_alt_return)
+        if cycle_sig:
+            encontrados += 1
+            msg = format_signal_message(cycle_sig)
+            print("-" * 60)
+            print(msg)
+            ok = send_telegram_message(msg)
+            print("  -> enviado pro Telegram" if ok else "  -> FALHOU ao enviar")
+        else:
+            print("  sem sinal de mania de memecoin no momento")
+    except Exception as e:
+        print(f"  erro no termômetro de ciclo ({e})")
+
+    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+        print(f"[{datetime.now(timezone.utc).isoformat()}] Montando diagnóstico de proximidade...")
+        try:
+            diag_msg = build_diagnostic_message(todos_diagnosticos)
+            ok = send_telegram_message(diag_msg)
+            print("  -> diagnóstico enviado" if ok else "  -> FALHOU ao enviar o diagnóstico")
+        except Exception as e:
+            print(f"  erro montando o diagnóstico ({e})")
+
+        symbol_query = os.environ.get("SYMBOL_QUERY", "").strip()
+        if symbol_query:
+            print(f"[{datetime.now(timezone.utc).isoformat()}] Analisando moeda pedida: {symbol_query}")
+            try:
+                deep_msg = build_symbol_deep_dive(symbol_query)
+            except Exception as e:
+                deep_msg = f"⚠️ Não consegui analisar {symbol_query}: {e}"
+            ok = send_telegram_message(deep_msg)
+            print("  -> análise da moeda enviada" if ok else "  -> FALHOU ao enviar a análise da moeda")
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] Varredura concluída. "
           f"{encontrados} sinal(is) encontrado(s).")
