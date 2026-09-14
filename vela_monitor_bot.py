@@ -95,6 +95,7 @@ import time
 import json
 import urllib.request
 import urllib.error
+import urllib.parse
 from datetime import datetime, timezone
 
 # ----------------------------------------------------------------------------
@@ -201,6 +202,21 @@ BINANCE_BASE = "https://api.binance.com"
 TELEGRAM_BASE = "https://api.telegram.org"
 
 API_SLEEP = 0.2   # pausa entre chamadas à Binance (respeita rate limit)
+
+# --- Notícias de fallback (quando a rodada não acha nenhum setup) ---
+# A Reuters não oferece mais um feed público de graça pra puxar direto sem
+# passar por scraping (o que evitamos de propósito — não é uma forma
+# confiável nem respeita os termos do site). Em vez disso usamos o plano
+# gratuito da NewsAPI.org filtrando o domínio reuters.com — só título e
+# resumo curto de cada notícia (nunca o texto completo do artigo), com o
+# link original, e traduzido pro português via MyMemory (tradução gratuita,
+# sem precisar de chave). Precisa cadastrar o secret NEWS_API_KEY no GitHub
+# com uma chave gratuita de newsapi.org — sem isso, esse recurso simplesmente
+# fica desligado (não quebra a varredura).
+NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "").strip()
+NEWS_API_BASE = "https://newsapi.org/v2"
+NEWS_MAX_HEADLINES = 4
+TRANSLATE_BASE = "https://api.mymemory.translated.net/get"
 
 
 # ----------------------------------------------------------------------------
@@ -1306,46 +1322,6 @@ def format_signal_message(sig):
     return "\n".join(linhas)
 
 
-def build_test_message():
-    return "\n".join([
-        "🧪 VELA MONITOR — TESTE",
-        "(mensagem de exemplo — não é um sinal real de compra/venda)",
-        "",
-        "Se essa mensagem chegou, a conexão entre o script, o GitHub Actions "
-        "e o seu bot do Telegram está funcionando.",
-        "",
-        f"Tipos de sinal ativos agora: Pullback (swing), Clímax de exaustão, "
-        f"Cascata de RSI (scalp), Bottom fishing (posição), Reversão de "
-        f"tendência com base (posição/swing), Reversão por rompimento falho "
-        f"(swing), Dominância BTC/altseason (mercado) e Termômetro de fase "
-        f"de ciclo — mania de memecoin (mercado). Varredura dinâmica dos "
-        f"{TOP_N_SYMBOLS} pares USDT de maior volume na Binance, não mais "
-        f"uma lista fixa.",
-        "",
-        "Exemplo de como um alerta de pullback se parece:",
-        "🟢 VELA MONITOR — SWING — Pullback (alta, 67000 → 82000)",
-        "BTC/USDT  (4h)",
-        "Preço agora: 76720",
-        "Zona Fibonacci 0.382: 76270",
-        "Stop sugerido: 74500",
-        "Alvos: 80800 > 82800 > 89500",
-        "",
-        "Por quê: Correção dentro da zona de Fibonacci 0.382 da última perna "
-        "de alta, com fundos ascendentes confirmando.",
-        "",
-        "Esse alerta de teste é enviado sempre que você roda o workflow "
-        "manualmente pelo botão \"Run workflow\" no GitHub. A varredura "
-        "automática de hora em hora só avisa quando encontra um setup de "
-        "verdade.",
-        "",
-        "Também nas execuções manuais: logo depois da varredura chega um "
-        "diagnóstico com as moedas mais perto de bater algum critério (mesmo "
-        "sem ter disparado ainda), e se você preencher o campo \"symbol\" do "
-        "Run workflow (ex.: SOLUSDT) chega também uma análise detalhada só "
-        "dessa moeda.",
-    ])
-
-
 def send_telegram_message(text):
     if not BOT_TOKEN or not CHAT_ID:
         print("ERRO: defina TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID nas variáveis de ambiente.")
@@ -1471,15 +1447,100 @@ def analyze_symbol(symbol, tier=None):
 
 
 # ----------------------------------------------------------------------------
+# NOTÍCIAS DE FALLBACK (quando a rodada não encontra nenhum setup na moeda)
+# ----------------------------------------------------------------------------
+
+def fetch_reuters_headlines(limit=NEWS_MAX_HEADLINES):
+    """
+    Busca as manchetes mais recentes do domínio reuters.com via NewsAPI.org
+    (plano gratuito). Pega só título e um resumo curto de cada notícia —
+    nunca o texto completo do artigo — mais o link original. Se a chave não
+    estiver configurada, ou a busca falhar por qualquer motivo, devolve uma
+    lista vazia (o chamador trata isso como "sem notícia disponível").
+    """
+    if not NEWS_API_KEY:
+        return []
+    params = urllib.parse.urlencode({
+        "domains": "reuters.com",
+        "language": "en",
+        "sortBy": "publishedAt",
+        "pageSize": limit,
+        "apiKey": NEWS_API_KEY,
+    })
+    url = f"{NEWS_API_BASE}/everything?{params}"
+    req = urllib.request.Request(url, headers={"User-Agent": "vela-monitor-bot/1.0"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    artigos = data.get("articles", [])[:limit]
+    noticias = []
+    for a in artigos:
+        titulo = (a.get("title") or "").strip()
+        if not titulo:
+            continue
+        noticias.append({
+            "titulo": titulo,
+            "descricao": (a.get("description") or "").strip(),
+            "url": a.get("url") or "",
+        })
+    return noticias
+
+
+def translate_to_pt(text):
+    """
+    Traduz um texto curto (título/resumo de notícia) do inglês pro português
+    via MyMemory (API gratuita, sem precisar de chave). Se a tradução falhar
+    por qualquer motivo, devolve o texto original em inglês — nunca quebra
+    o envio por causa disso.
+    """
+    if not text:
+        return text
+    try:
+        params = urllib.parse.urlencode({"q": text, "langpair": "en|pt-BR"})
+        url = f"{TRANSLATE_BASE}?{params}"
+        req = urllib.request.Request(url, headers={"User-Agent": "vela-monitor-bot/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        traduzido = (data.get("responseData") or {}).get("translatedText")
+        return traduzido.strip() if traduzido else text
+    except Exception:
+        return text
+
+
+def build_news_fallback_message():
+    """
+    Monta a mensagem de manchetes da Reuters (traduzidas) pra mandar quando
+    a rodada não encontra nenhum setup em nenhuma moeda. Devolve None se não
+    tiver chave configurada ou se a busca não trouxer nada — nesse caso o
+    chamador simplesmente não manda mensagem nenhuma (silêncio, como antes).
+    """
+    try:
+        noticias = fetch_reuters_headlines()
+    except Exception as e:
+        print(f"  erro buscando manchetes da Reuters ({e})")
+        return None
+    if not noticias:
+        return None
+
+    linhas = ["📰 VELA MONITOR — sem setup nessa rodada, manchetes da Reuters", ""]
+    for n in noticias:
+        linhas.append(f"• {translate_to_pt(n['titulo'])}")
+        if n["descricao"]:
+            linhas.append(f"  {translate_to_pt(n['descricao'])}")
+        if n["url"]:
+            linhas.append(f"  {n['url']}")
+        linhas.append("")
+    linhas.append(
+        "Título e resumo traduzidos automaticamente, link original da Reuters "
+        "em cada notícia — conteúdo é da Reuters, não do bot."
+    )
+    return "\n".join(linhas)
+
+
+# ----------------------------------------------------------------------------
 # MAIN
 # ----------------------------------------------------------------------------
 
 def main():
-    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
-        print("Execução manual detectada — enviando mensagem de teste...")
-        ok = send_telegram_message(build_test_message())
-        print("  -> mensagem de teste enviada" if ok else "  -> FALHOU ao enviar a mensagem de teste")
-
     print(f"[{datetime.now(timezone.utc).isoformat()}] Buscando os {TOP_N_SYMBOLS} pares "
           f"USDT de maior volume na Binance...")
     try:
@@ -1497,6 +1558,7 @@ def main():
           f"{len(watchlist)} moedas (pullback + exaustão + cascata scalp + "
           f"bottom fishing + reversão leve + rompimento falho)...")
     encontrados = 0
+    sinais_moeda_count = 0
     todos_diagnosticos = []
     for symbol in watchlist:
         try:
@@ -1507,6 +1569,7 @@ def main():
         if sinais:
             for sig in sinais:
                 encontrados += 1
+                sinais_moeda_count += 1
                 msg = format_signal_message(sig)
                 print("-" * 60)
                 print(msg)
@@ -1570,6 +1633,19 @@ def main():
                 deep_msg = f"⚠️ Não consegui analisar {symbol_query}: {e}"
             ok = send_telegram_message(deep_msg)
             print("  -> análise da moeda enviada" if ok else "  -> FALHOU ao enviar a análise da moeda")
+
+    if sinais_moeda_count == 0:
+        print(f"[{datetime.now(timezone.utc).isoformat()}] Nenhum sinal de moeda nessa "
+              f"rodada — buscando manchetes da Reuters como fallback...")
+        try:
+            news_msg = build_news_fallback_message()
+            if news_msg:
+                ok = send_telegram_message(news_msg)
+                print("  -> manchetes enviadas" if ok else "  -> FALHOU ao enviar as manchetes")
+            else:
+                print("  sem NEWS_API_KEY configurada ou sem manchetes disponíveis — nada enviado")
+        except Exception as e:
+            print(f"  erro no fallback de notícias ({e})")
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] Varredura concluída. "
           f"{encontrados} sinal(is) encontrado(s).")

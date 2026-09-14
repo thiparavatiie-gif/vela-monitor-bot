@@ -58,6 +58,10 @@ Arquivos deste pacote:
    New repository secret** e cadastre dois secrets:
    - `TELEGRAM_BOT_TOKEN` = o token do Passo 1
    - `TELEGRAM_CHAT_ID` = o chat_id do Passo 2
+   - `NEWS_API_KEY` (opcional) = uma chave gratuita de
+     [newsapi.org](https://newsapi.org/register) (cadastro grátis, plano
+     "Developer"). Sem esse secret, o bot funciona normalmente — só não
+     manda as manchetes da Reuters quando não acha nenhum setup na hora.
 4. Pronto — o workflow já está configurado pra rodar automaticamente a
    cada hora (`cron: "0 * * * *"`). Você também pode disparar manualmente
    em **Actions → Vela Monitor - varredura horária → Run workflow** pra
