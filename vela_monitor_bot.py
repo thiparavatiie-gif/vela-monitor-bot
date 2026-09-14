@@ -34,6 +34,14 @@
 #      BTC forte na frente das alts = dominância subindo; alts fortes na
 #      frente do BTC = dominância caindo / altseason.
 #
+#   6) REVERSÃO POR ROMPIMENTO FALHO (swing) — o preço rompe um suporte ou
+#      resistência relevante (já confirmado por pivô), mas não tem
+#      continuidade nessa direção e já recupera pro outro lado com volume
+#      acima da média. Foi descrito numa das lives como o mecanismo por trás
+#      de um alerta que o robô próprio do canal soltou automaticamente no
+#      grupo dele — rompimento sem seguimento tende a invalidar o movimento
+#      e antecipar uma reversão forte na direção contrária.
+#
 #  Watchlist dinâmica: em vez de uma lista fixa, a varredura busca os
 #  TOP_N_SYMBOLS pares USDT de maior volume na Binance a cada rodada (ideia
 #  de uma live do canal: a IA dele varre um universo grande de moedas, não
@@ -140,6 +148,12 @@ VOLUME_TIER_LARGE_PCT = 0.34   # terço de maior volume do watchlist
 # --- Dominância BTC / altseason (proxy) ---
 DOMINANCE_LOOKBACK_DAYS = 7
 DOMINANCE_DIVERGENCE_PP = 6.0  # diferença mínima (pontos percentuais) pra alertar
+
+# --- Reversão por rompimento falho (swing) ---
+FAILED_BREAK_LOOKBACK = 6              # candles recentes onde procuramos o rompimento
+FAILED_BREAK_PENETRATION_PCT = 0.001   # rompimento mínimo (0.1%) além do nível de referência
+FAILED_BREAK_RECOVERY_PCT = 0.001      # recuperação mínima (0.1%) de volta pro outro lado
+FAILED_BREAK_VOLUME_RATIO = 1.3        # volume mínimo (x média) no rompimento ou na recuperação
 
 BINANCE_BASE = "https://api.binance.com"
 TELEGRAM_BASE = "https://api.telegram.org"
@@ -726,6 +740,96 @@ def check_dominance_altseason(watchlist):
 
 
 # ----------------------------------------------------------------------------
+# SINAL 6 — REVERSÃO POR ROMPIMENTO FALHO (swing)
+# ----------------------------------------------------------------------------
+
+def check_failed_breakout_reversal(symbol, candles):
+    """
+    Procura por: (1) um suporte/resistência relevante já confirmado por pivô,
+    (2) um rompimento recente desse nível que NÃO teve continuidade — o
+    preço já voltou pro lado de dentro —, e (3) volume acima da média no
+    rompimento ou na recuperação, confirmando força real por trás da
+    reversão (e não só ruído).
+    """
+    if len(candles) < (2 * PIVOT_LEN + FAILED_BREAK_LOOKBACK + 5):
+        return None
+    pivot_highs, pivot_lows = find_pivots(candles, PIVOT_LEN)
+    price_now = candles[-1]["close"]
+    _, avg_vol, _ = volume_status(candles)
+    if not avg_vol:
+        return None
+
+    recent_window = candles[-FAILED_BREAK_LOOKBACK:]
+
+    def _strong_volume():
+        return any((c["volume"] / avg_vol) >= FAILED_BREAK_VOLUME_RATIO for c in recent_window)
+
+    # --- caso de alta: rompeu um SUPORTE mas não teve continuidade de queda
+    # e já recuperou de volta pra cima dele, com volume forte ---
+    if pivot_lows:
+        ref_idx, ref_price = pivot_lows[-1]
+        if ref_idx < len(candles) - FAILED_BREAK_LOOKBACK:
+            broke = any(c["low"] < ref_price * (1 - FAILED_BREAK_PENETRATION_PCT) for c in recent_window)
+            recovered = price_now > ref_price * (1 + FAILED_BREAK_RECOVERY_PCT)
+            if broke and recovered and _strong_volume():
+                stop = avoid_round_number_stop(ref_price * 0.99, "compra")
+                return {
+                    "symbol": symbol, "estilo": "SWING", "acao": "COMPRAR",
+                    "titulo": "Reversão por rompimento falho (suporte)",
+                    "timeframe": INTERVAL,
+                    "detalhes": [
+                        f"Preço agora: {price_now:.4g}",
+                        f"Suporte rompido e recuperado: {ref_price:.4g}",
+                        f"Stop sugerido: {stop:.4g}",
+                    ],
+                    "explicacao": (
+                        f"O preço rompeu o suporte em {ref_price:.4g} mas não teve "
+                        f"continuidade de queda — já recuperou de volta pra cima do "
+                        f"nível com volume acima da média. Rompimento sem seguimento "
+                        f"tende a invalidar o movimento de baixa e favorecer uma "
+                        f"reversão de alta."
+                    ),
+                    "aviso": (
+                        "Padrão de exaustão/reversão: cuidado se o preço voltar a "
+                        "perder esse nível com volume — isso invalidaria a reversão."
+                    ),
+                }
+
+    # --- caso de baixa: rompeu uma RESISTÊNCIA mas não teve continuidade de
+    # alta e já devolveu pra dentro dela, com volume forte ---
+    if pivot_highs:
+        ref_idx, ref_price = pivot_highs[-1]
+        if ref_idx < len(candles) - FAILED_BREAK_LOOKBACK:
+            broke = any(c["high"] > ref_price * (1 + FAILED_BREAK_PENETRATION_PCT) for c in recent_window)
+            recovered = price_now < ref_price * (1 - FAILED_BREAK_RECOVERY_PCT)
+            if broke and recovered and _strong_volume():
+                stop = avoid_round_number_stop(ref_price * 1.01, "venda")
+                return {
+                    "symbol": symbol, "estilo": "SWING", "acao": "VENDER",
+                    "titulo": "Reversão por rompimento falho (resistência)",
+                    "timeframe": INTERVAL,
+                    "detalhes": [
+                        f"Preço agora: {price_now:.4g}",
+                        f"Resistência rompida e devolvida: {ref_price:.4g}",
+                        f"Stop sugerido: {stop:.4g}",
+                    ],
+                    "explicacao": (
+                        f"O preço rompeu a resistência em {ref_price:.4g} mas não teve "
+                        f"continuidade de alta — já devolveu pra dentro do nível com "
+                        f"volume acima da média. Rompimento sem seguimento tende a "
+                        f"invalidar o movimento de alta e favorecer uma reversão de "
+                        f"baixa."
+                    ),
+                    "aviso": (
+                        "Padrão de exaustão/reversão: cuidado se o preço voltar a "
+                        "romper esse nível com volume — isso invalidaria a reversão."
+                    ),
+                }
+
+    return None
+
+
+# ----------------------------------------------------------------------------
 # MENSAGEM E ENVIO PRO TELEGRAM
 # ----------------------------------------------------------------------------
 
@@ -765,9 +869,10 @@ def build_test_message():
         "",
         f"Tipos de sinal ativos agora: Pullback (swing), Clímax de exaustão, "
         f"Cascata de RSI (scalp), Bottom fishing (posição), Reversão de "
-        f"tendência com base (posição/swing) e Dominância BTC/altseason "
-        f"(mercado). Varredura dinâmica dos {TOP_N_SYMBOLS} pares USDT de "
-        f"maior volume na Binance, não mais uma lista fixa.",
+        f"tendência com base (posição/swing), Reversão por rompimento falho "
+        f"(swing) e Dominância BTC/altseason (mercado). Varredura dinâmica "
+        f"dos {TOP_N_SYMBOLS} pares USDT de maior volume na Binance, não "
+        f"mais uma lista fixa.",
         "",
         "Exemplo de como um alerta de pullback se parece:",
         "🟢 VELA MONITOR — SWING — Pullback (alta, 67000 → 82000)",
@@ -841,6 +946,13 @@ def analyze_symbol(symbol, tier=None):
     except Exception as e:
         print(f"  {symbol}: erro no check de cascata scalp ({e})")
 
+    try:
+        sig = check_failed_breakout_reversal(symbol, candles_4h)
+        if sig:
+            sinais.append(sig)
+    except Exception as e:
+        print(f"  {symbol}: erro no check de reversão por rompimento falho ({e})")
+
     # bottom fishing e reversão leve compartilham os candles diário/semanal
     try:
         candles_d = fetch_klines(symbol, "1d", 200)
@@ -891,7 +1003,8 @@ def main():
         tiers = {}
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] Iniciando varredura de "
-          f"{len(watchlist)} moedas (pullback + exaustão + cascata scalp + bottom fishing + reversão leve)...")
+          f"{len(watchlist)} moedas (pullback + exaustão + cascata scalp + "
+          f"bottom fishing + reversão leve + rompimento falho)...")
     encontrados = 0
     for symbol in watchlist:
         try:
