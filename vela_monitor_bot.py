@@ -17,9 +17,14 @@
 #      sobrevenda/sobrecompra nos tempos curtos antecede um repique/correção
 #      rápida antes mesmo do diário se mexer.
 #
-#   4) BOTTOM FISHING (posição) — moeda muito abaixo da própria máxima
-#      histórica (drawdown grande) e formando fundos ascendentes no diário,
-#      indicando possível base de longo prazo se formando.
+#   4) BOTTOM FISHING (posição) — moeda muito abaixo (55%+) da própria máxima
+#      HISTÓRICA e formando fundos ascendentes no diário, indicando possível
+#      base de longo prazo se formando.
+#
+#   4b) REVERSÃO DE TENDÊNCIA COM BASE (posição/swing) — versão mais leve do
+#      bottom fishing: correção moderada (30%-55%) desde o topo dos últimos
+#      ~180 dias (não a máxima histórica), com fundos ascendentes. Pega
+#      reversões de médio prazo, não só quedas históricas extremas.
 #
 #   5) DOMINÂNCIA BTC / ALTSEASON (mercado, uma vez por rodada) — compara o
 #      retorno do BTC nos últimos 7 dias com a média do watchlist de
@@ -28,6 +33,19 @@
 #      baseado em performance relativa, mas segue a mesma lógica da regra:
 #      BTC forte na frente das alts = dominância subindo; alts fortes na
 #      frente do BTC = dominância caindo / altseason.
+#
+#  Watchlist dinâmica: em vez de uma lista fixa, a varredura busca os
+#  TOP_N_SYMBOLS pares USDT de maior volume na Binance a cada rodada (ideia
+#  de uma live do canal: a IA dele varre um universo grande de moedas, não
+#  uma lista fixa pequena). Cada moeda recebe uma tag de "porte" (grande/
+#  médio/pequeno) baseada no rank de volume dentro do próprio watchlist —
+#  um PROXY de market cap, já que a Binance não fornece isso — usada nos
+#  sinais de reversão porque o canal comentou preferir moedas de menor
+#  porte pra esse tipo de setup.
+#
+#  Stops também passam por um ajuste anti-número-redondo: nunca deixamos o
+#  stop logo abaixo (compra) ou acima (venda) de um nível psicológico
+#  redondo (tipo 75.000, 80.000) — outra ideia direto de uma live.
 #
 #  Todos os sinais são leitura técnica automática baseada em regras (RSI,
 #  volume, estrutura, fibonacci, drawdown) — não são recomendação de
@@ -41,6 +59,7 @@
 # ============================================================================
 
 import os
+import math
 import time
 import json
 import urllib.request
@@ -54,14 +73,28 @@ from datetime import datetime, timezone
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
-# Watchlist fixa — top pares USDT por volume na Binance (edite à vontade).
-WATCHLIST = [
+# Watchlist — em vez de uma lista fixa pequena, a varredura busca dinamicamente
+# os N pares USDT de maior volume na Binance a cada rodada (ideia tirada de uma
+# live do canal: a IA dele varre um universo grande de moedas, não só uma
+# lista fixa, pra pegar oportunidades fora do radar). Se a busca falhar por
+# qualquer motivo, cai no fallback fixo abaixo.
+TOP_N_SYMBOLS = 50
+
+FALLBACK_WATCHLIST = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
     "ADAUSDT", "DOGEUSDT", "AVAXUSDT", "DOTUSDT", "LINKUSDT",
     "TRXUSDT", "LTCUSDT", "BCHUSDT", "UNIUSDT", "ATOMUSDT",
     "XLMUSDT", "ETCUSDT", "FILUSDT", "APTUSDT", "ARBUSDT",
     "OPUSDT", "NEARUSDT", "INJUSDT", "SUIUSDT", "TONUSDT",
 ]
+
+# Moedas que não fazem sentido entrar na varredura de padrão técnico: outras
+# stablecoins contra USDT (não têm tendência de verdade) e tokens alavancados.
+STABLE_BASES = {
+    "USDC", "FDUSD", "TUSD", "BUSD", "DAI", "USDP", "PYUSD", "USDE",
+    "EUR", "GBP", "AEUR", "USDS", "USTC",
+}
+LEVERAGED_SUFFIXES = ("UP", "DOWN", "BULL", "BEAR")
 
 # --- Pullback (swing) ---
 INTERVAL = "4h"
@@ -82,10 +115,27 @@ CLIMAX_VOLUME_RATIO = 2.0
 SCALP_RSI_OVERSOLD = 30
 SCALP_RSI_OVERBOUGHT = 70
 
-# --- Bottom fishing (posição) ---
+# --- Bottom fishing (posição) — drawdown profundo desde a máxima histórica ---
 BOTTOM_FISHING_MIN_DRAWDOWN = 0.55   # pelo menos 55% abaixo da máxima histórica
 BOTTOM_FISHING_PIVOT_LEN = 3
 BOTTOM_FISHING_MIN_ASCENDING = 2
+
+# --- Reversão de tendência com base (posição/swing) — drawdown mais moderado,
+# desde a máxima "recente" (não a histórica), pra pegar reversões de médio
+# prazo tipo a que o canal descreveu numa live (moeda de menor porte saindo
+# de tendência de baixa, formando base nítida) ---
+LIGHT_REVERSAL_LOOKBACK_DAYS = 180
+LIGHT_REVERSAL_PIVOT_LEN = 5
+LIGHT_REVERSAL_MIN_DRAWDOWN = 0.30
+LIGHT_REVERSAL_MAX_DRAWDOWN = BOTTOM_FISHING_MIN_DRAWDOWN  # acima disso, já é bottom fishing
+
+# --- Classificação de "porte" por volume (proxy de market cap) — a Binance
+# não fornece market cap, então usamos o rank de volume dentro do próprio
+# watchlist do dia como aproximação de porte, do jeito que o canal comentou
+# preferir moedas "com menos dinheiro enfiado nelas" pra reversões. Não é o
+# market cap real, é só um proxy — deixamos isso claro na mensagem.
+VOLUME_TIER_SMALL_PCT = 0.34   # terço de menor volume do watchlist
+VOLUME_TIER_LARGE_PCT = 0.34   # terço de maior volume do watchlist
 
 # --- Dominância BTC / altseason (proxy) ---
 DOMINANCE_LOOKBACK_DAYS = 7
@@ -121,6 +171,64 @@ def fetch_klines(symbol: str, interval: str, limit: int):
     return candles
 
 
+def fetch_top_usdt_symbols(limit=TOP_N_SYMBOLS):
+    """
+    Busca todos os pares USDT da Binance com seu volume das últimas 24h e
+    devolve os `limit` de maior volume — a varredura "grande", em vez de uma
+    lista fixa. Remove stablecoins contra USDT e tokens alavancados, que não
+    fazem sentido pra análise de padrão técnico.
+    """
+    url = f"{BINANCE_BASE}/api/v3/ticker/24hr"
+    req = urllib.request.Request(url, headers={"User-Agent": "vela-monitor-bot/1.0"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        raw = json.loads(resp.read().decode("utf-8"))
+    time.sleep(API_SLEEP)
+
+    candidatos = []
+    for row in raw:
+        symbol = row.get("symbol", "")
+        if not symbol.endswith("USDT"):
+            continue
+        base = symbol[:-4]
+        if base in STABLE_BASES:
+            continue
+        if base.endswith(LEVERAGED_SUFFIXES):
+            continue
+        try:
+            quote_volume = float(row.get("quoteVolume", 0))
+        except (TypeError, ValueError):
+            continue
+        if quote_volume <= 0:
+            continue
+        candidatos.append((symbol, quote_volume))
+
+    candidatos.sort(key=lambda x: x[1], reverse=True)
+    top = candidatos[:limit]
+    return top  # lista de (symbol, quoteVolume), já ordenada por volume desc
+
+
+def classify_volume_tiers(top_symbols):
+    """
+    Recebe a lista [(symbol, quoteVolume), ...] já ordenada por volume desc
+    e devolve um dict symbol -> "grande" | "médio" | "pequeno", como proxy de
+    porte (não é market cap real, é rank de volume dentro do watchlist).
+    """
+    n = len(top_symbols)
+    if n == 0:
+        return {}
+    large_cut = int(n * VOLUME_TIER_LARGE_PCT)
+    small_cut = int(n * (1 - VOLUME_TIER_SMALL_PCT))
+    tiers = {}
+    for i, (symbol, _) in enumerate(top_symbols):
+        if i < large_cut:
+            tiers[symbol] = "grande"
+        elif i >= small_cut:
+            tiers[symbol] = "pequeno"
+        else:
+            tiers[symbol] = "médio"
+    return tiers
+
+
 # ----------------------------------------------------------------------------
 # INDICADORES BÁSICOS
 # ----------------------------------------------------------------------------
@@ -153,6 +261,50 @@ def volume_status(candles, lookback=VOLUME_LOOKBACK):
     current_vol = candles[-1]["volume"]
     ratio = current_vol / avg_vol if avg_vol > 0 else None
     return current_vol, avg_vol, ratio
+
+
+# ----------------------------------------------------------------------------
+# NÚMEROS PSICOLÓGICOS REDONDOS — ajuste de stop
+#
+# Ideia de uma das lives: nunca deixe seu ponto de stop/liquidação logo
+# abaixo (compra) ou acima (venda) de um número redondo (tipo 75, 80, 100
+# mil) — o preço "gosta" de visitar esses níveis pra caçar stops. Prefira um
+# stop com uma margem melhor, ex.: 73900 em vez de 74900.
+# ----------------------------------------------------------------------------
+
+ROUND_NUMBER_PROXIMITY_PCT = 0.006   # considera "perto" de um redondo dentro de 0.6%
+ROUND_NUMBER_EXTRA_BUFFER_PCT = 0.004  # quanto empurrar o stop pra além do redondo
+
+
+def _round_number_candidates(price):
+    if price <= 0:
+        return []
+    magnitude = 10 ** math.floor(math.log10(price))
+    candidates = set()
+    for step in (magnitude, magnitude / 2, magnitude / 4, magnitude / 10):
+        if step <= 0:
+            continue
+        base = round(price / step) * step
+        for k in range(-2, 3):
+            candidates.add(round(base + k * step, 10))
+    return [c for c in candidates if c > 0]
+
+
+def avoid_round_number_stop(stop_price, side):
+    """
+    `side` = "compra" (stop fica abaixo do preço, empurra mais pra baixo se
+    estiver colado num redondo) ou "venda" (stop acima do preço, empurra
+    mais pra cima).
+    """
+    for candidate in _round_number_candidates(stop_price):
+        diff_pct = abs(stop_price - candidate) / candidate
+        if diff_pct > ROUND_NUMBER_PROXIMITY_PCT:
+            continue
+        if side == "compra" and stop_price <= candidate:
+            return candidate * (1 - ROUND_NUMBER_EXTRA_BUFFER_PCT)
+        if side == "venda" and stop_price >= candidate:
+            return candidate * (1 + ROUND_NUMBER_EXTRA_BUFFER_PCT)
+    return stop_price
 
 
 # ----------------------------------------------------------------------------
@@ -259,11 +411,13 @@ def check_pullback(symbol, candles):
     if leg["direction"] == "alta":
         acao = "COMPRAR"
         stop = min(p[1] for p in recent_pivots[-MIN_ASCENDING_BOTTOMS:]) * 0.995
+        stop = avoid_round_number_stop(stop, "compra")
         targets = [leg["end_price"], leg["end_price"] + 0.272 * leg_size, leg["end_price"] + 0.618 * leg_size]
         estrutura_txt = "fundos ascendentes"
     else:
         acao = "VENDER"
         stop = max(p[1] for p in recent_pivots[-MIN_ASCENDING_BOTTOMS:]) * 1.005
+        stop = avoid_round_number_stop(stop, "venda")
         targets = [leg["end_price"], leg["end_price"] - 0.272 * leg_size, leg["end_price"] - 0.618 * leg_size]
         estrutura_txt = "topos descendentes"
 
@@ -373,17 +527,25 @@ def check_scalp_cascade(symbol):
 # SINAL 4 — BOTTOM FISHING (posição)
 # ----------------------------------------------------------------------------
 
-def check_bottom_fishing(symbol):
-    candles_w = fetch_klines(symbol, "1w", 1000)
-    if len(candles_w) < 20:
+def _tier_note(tier):
+    if tier == "pequeno":
+        return (
+            "Moeda de menor volume dentro do watchlist (proxy de porte menor) — "
+            "menos dinheiro nela costuma significar mais facilidade pra mover o "
+            "preço, pra cima ou pra baixo."
+        )
+    return None
+
+
+def check_bottom_fishing(symbol, candles_d, candles_w, tier=None):
+    if len(candles_w) < 20 or len(candles_d) < 20:
         return None
     ath = max(c["high"] for c in candles_w)
-    price_now = candles_w[-1]["close"]
+    price_now = candles_d[-1]["close"]
     drawdown = (ath - price_now) / ath
     if drawdown < BOTTOM_FISHING_MIN_DRAWDOWN:
         return None
 
-    candles_d = fetch_klines(symbol, "1d", 200)
     pivot_highs_d, pivot_lows_d = find_pivots(candles_d, BOTTOM_FISHING_PIVOT_LEN)
     if len(pivot_lows_d) < BOTTOM_FISHING_MIN_ASCENDING:
         return None
@@ -393,27 +555,103 @@ def check_bottom_fishing(symbol):
     if not ascending:
         return None
 
-    stop = min(prices) * 0.97
+    stop = avoid_round_number_stop(min(prices) * 0.97, "compra")
+    entry_low, entry_high = min(prices), max(price_now, max(prices))
+
+    detalhes = [
+        f"Preço agora: {price_now:.4g}",
+        f"Máxima histórica: {ath:.4g}  ({drawdown * 100:.0f}% abaixo)",
+        f"Zona de entrada sugerida: {entry_low:.4g} – {entry_high:.4g}",
+        f"Stop sugerido: {stop:.4g}",
+    ]
+    if tier:
+        detalhes.append(f"Porte (por volume): {tier}")
+
+    aviso = (
+        "Sinal de posição/longo prazo: drawdowns grandes podem continuar por "
+        "muito tempo antes de reverter de verdade — confirme com o contexto "
+        "macro (BTC, dominância) antes de posicionar tamanho relevante."
+    )
+    tier_note = _tier_note(tier)
+    if tier_note:
+        aviso = tier_note + " " + aviso
+
     return {
         "symbol": symbol, "estilo": "POSIÇÃO", "acao": "COMPRAR",
         "titulo": "Bottom fishing — fundo histórico",
         "timeframe": "1w (máxima) + 1d (estrutura)",
-        "detalhes": [
-            f"Preço agora: {price_now:.4g}",
-            f"Máxima histórica: {ath:.4g}  ({drawdown * 100:.0f}% abaixo)",
-            f"Stop sugerido: {stop:.4g}",
-        ],
+        "detalhes": detalhes,
         "explicacao": (
             f"Moeda {drawdown * 100:.0f}% abaixo da máxima histórica e formando fundos "
             f"ascendentes no diário — indício de que uma base de longo prazo pode "
             f"estar se formando, no espírito do \"bottom fishing\" (stop sempre "
             f"abaixo da base, nunca no meio do range)."
         ),
-        "aviso": (
-            "Sinal de posição/longo prazo: drawdowns grandes podem continuar por "
-            "muito tempo antes de reverter de verdade — confirme com o contexto "
-            "macro (BTC, dominância) antes de posicionar tamanho relevante."
+        "aviso": aviso,
+    }
+
+
+# ----------------------------------------------------------------------------
+# SINAL 4b — REVERSÃO DE TENDÊNCIA COM BASE (posição/swing, drawdown moderado)
+# ----------------------------------------------------------------------------
+
+def check_light_reversal(symbol, candles_d, tier=None):
+    """
+    Versão mais leve do bottom fishing: em vez de exigir drawdown profundo
+    desde a MÁXIMA HISTÓRICA, olha só os últimos ~180 dias e procura uma
+    correção moderada (30%-55%) desde o topo desse período, com fundos
+    ascendentes confirmando — pra pegar reversões de médio prazo, não só
+    quedas históricas extremas.
+    """
+    lookback = min(len(candles_d), LIGHT_REVERSAL_LOOKBACK_DAYS)
+    if lookback < 30:
+        return None
+    window = candles_d[-lookback:]
+
+    pivot_highs, pivot_lows = find_pivots(window, LIGHT_REVERSAL_PIVOT_LEN)
+    if not pivot_highs:
+        return None
+    swing_high_idx, swing_high_price = max(pivot_highs, key=lambda p: p[1])
+
+    price_now = window[-1]["close"]
+    drawdown = (swing_high_price - price_now) / swing_high_price
+    if drawdown < LIGHT_REVERSAL_MIN_DRAWDOWN or drawdown >= LIGHT_REVERSAL_MAX_DRAWDOWN:
+        return None
+
+    recent_lows = [p for p in pivot_lows if p[0] > swing_high_idx]
+    if len(recent_lows) < BOTTOM_FISHING_MIN_ASCENDING:
+        return None
+    recent_lows = recent_lows[-BOTTOM_FISHING_MIN_ASCENDING:]
+    prices = [p[1] for p in recent_lows]
+    ascending = all(prices[i] < prices[i + 1] for i in range(len(prices) - 1))
+    if not ascending:
+        return None
+
+    stop = avoid_round_number_stop(min(prices) * 0.97, "compra")
+    entry_low, entry_high = min(prices), max(price_now, max(prices))
+
+    detalhes = [
+        f"Preço agora: {price_now:.4g}",
+        f"Topo dos últimos {lookback}d: {swing_high_price:.4g}  ({drawdown * 100:.0f}% abaixo)",
+        f"Zona de entrada sugerida: {entry_low:.4g} – {entry_high:.4g}",
+        f"Stop sugerido: {stop:.4g}",
+    ]
+    if tier:
+        detalhes.append(f"Porte (por volume): {tier}")
+
+    aviso = _tier_note(tier)
+
+    return {
+        "symbol": symbol, "estilo": "SWING/POSIÇÃO", "acao": "COMPRAR",
+        "titulo": "Reversão de tendência com base",
+        "timeframe": f"1d ({lookback}d)",
+        "detalhes": detalhes,
+        "explicacao": (
+            f"Correção de {drawdown * 100:.0f}% desde o topo dos últimos {lookback} dias, "
+            f"com fundos ascendentes formando uma base nítida — padrão de reversão "
+            f"de tendência de médio prazo, saindo de baixa e migrando pra alta."
         ),
+        "aviso": aviso,
     }
 
 
@@ -525,9 +763,11 @@ def build_test_message():
         "Se essa mensagem chegou, a conexão entre o script, o GitHub Actions "
         "e o seu bot do Telegram está funcionando.",
         "",
-        "Tipos de sinal ativos agora: Pullback (swing), Clímax de exaustão, "
-        "Cascata de RSI (scalp), Bottom fishing (posição) e Dominância "
-        "BTC/altseason (mercado).",
+        f"Tipos de sinal ativos agora: Pullback (swing), Clímax de exaustão, "
+        f"Cascata de RSI (scalp), Bottom fishing (posição), Reversão de "
+        f"tendência com base (posição/swing) e Dominância BTC/altseason "
+        f"(mercado). Varredura dinâmica dos {TOP_N_SYMBOLS} pares USDT de "
+        f"maior volume na Binance, não mais uma lista fixa.",
         "",
         "Exemplo de como um alerta de pullback se parece:",
         "🟢 VELA MONITOR — SWING — Pullback (alta, 67000 → 82000)",
@@ -574,7 +814,7 @@ def send_telegram_message(text):
 # ANÁLISE POR MOEDA — roda os 4 checks por-moeda e junta os sinais
 # ----------------------------------------------------------------------------
 
-def analyze_symbol(symbol):
+def analyze_symbol(symbol, tier=None):
     sinais = []
     candles_4h = fetch_klines(symbol, INTERVAL, KLINES_LIMIT)
     if len(candles_4h) < (2 * PIVOT_LEN + 10):
@@ -601,12 +841,28 @@ def analyze_symbol(symbol):
     except Exception as e:
         print(f"  {symbol}: erro no check de cascata scalp ({e})")
 
+    # bottom fishing e reversão leve compartilham os candles diário/semanal
     try:
-        sig = check_bottom_fishing(symbol)
-        if sig:
-            sinais.append(sig)
+        candles_d = fetch_klines(symbol, "1d", 200)
+        candles_w = fetch_klines(symbol, "1w", 1000)
     except Exception as e:
-        print(f"  {symbol}: erro no check de bottom fishing ({e})")
+        print(f"  {symbol}: erro ao buscar candles diário/semanal ({e})")
+        candles_d, candles_w = [], []
+
+    if candles_d and candles_w:
+        try:
+            sig = check_bottom_fishing(symbol, candles_d, candles_w, tier=tier)
+            if sig:
+                sinais.append(sig)
+        except Exception as e:
+            print(f"  {symbol}: erro no check de bottom fishing ({e})")
+
+        try:
+            sig = check_light_reversal(symbol, candles_d, tier=tier)
+            if sig:
+                sinais.append(sig)
+        except Exception as e:
+            print(f"  {symbol}: erro no check de reversão leve ({e})")
 
     return sinais
 
@@ -621,12 +877,25 @@ def main():
         ok = send_telegram_message(build_test_message())
         print("  -> mensagem de teste enviada" if ok else "  -> FALHOU ao enviar a mensagem de teste")
 
+    print(f"[{datetime.now(timezone.utc).isoformat()}] Buscando os {TOP_N_SYMBOLS} pares "
+          f"USDT de maior volume na Binance...")
+    try:
+        top_symbols = fetch_top_usdt_symbols(TOP_N_SYMBOLS)
+        watchlist = [s for s, _ in top_symbols]
+        tiers = classify_volume_tiers(top_symbols)
+        if not watchlist:
+            raise ValueError("lista vazia")
+    except Exception as e:
+        print(f"  erro ao buscar watchlist dinâmica ({e}) — usando lista fixa de fallback")
+        watchlist = FALLBACK_WATCHLIST
+        tiers = {}
+
     print(f"[{datetime.now(timezone.utc).isoformat()}] Iniciando varredura de "
-          f"{len(WATCHLIST)} moedas (pullback + exaustão + cascata scalp + bottom fishing)...")
+          f"{len(watchlist)} moedas (pullback + exaustão + cascata scalp + bottom fishing + reversão leve)...")
     encontrados = 0
-    for symbol in WATCHLIST:
+    for symbol in watchlist:
         try:
-            sinais = analyze_symbol(symbol)
+            sinais = analyze_symbol(symbol, tier=tiers.get(symbol))
         except Exception as e:
             print(f"  {symbol}: erro na análise ({e})")
             continue
@@ -643,7 +912,7 @@ def main():
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] Verificando dominância BTC/altseason...")
     try:
-        dom_sig = check_dominance_altseason(WATCHLIST)
+        dom_sig = check_dominance_altseason(watchlist)
         if dom_sig:
             encontrados += 1
             msg = format_signal_message(dom_sig)
