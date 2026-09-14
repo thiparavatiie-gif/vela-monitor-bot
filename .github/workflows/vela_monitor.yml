@@ -1,0 +1,24 @@
+name: Vela Monitor - varredura horária
+
+on:
+  schedule:
+    - cron: "0 * * * *"   # a cada hora, no minuto 0 (horário UTC)
+  workflow_dispatch: {}     # permite rodar manualmente pelo botão "Run workflow"
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Rodar a varredura e enviar alertas pro Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python vela_monitor_bot.py
