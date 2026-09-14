@@ -306,6 +306,29 @@ def format_message(result):
     return "\n".join(linhas)
 
 
+def build_test_message():
+    """Mensagem de exemplo, só pra confirmar que o bot consegue te avisar."""
+    return "\n".join([
+        "🧪 VELA MONITOR — TESTE",
+        "(mensagem de exemplo — não é um sinal real de compra/venda)",
+        "",
+        "Se essa mensagem chegou, a conexão entre o script, o GitHub Actions "
+        "e o seu bot do Telegram está funcionando.",
+        "",
+        "Exemplo de como um alerta de verdade se parece:",
+        "🟢 COMPRAR BTC/USDT (pullback da perna de alta, 67000 → 82000)",
+        "Preço agora: 76720",
+        "Zona Fibonacci 0.382: 76270",
+        "Stop sugerido: 74500",
+        "Alvos: 80800 > 82800 > 89500",
+        "",
+        "Esse alerta de teste é enviado sempre que você roda o workflow "
+        "manualmente pelo botão \"Run workflow\" no GitHub. A varredura "
+        "automática de hora em hora só avisa quando encontra um setup "
+        "de verdade.",
+    ])
+
+
 def send_telegram_message(text):
     if not BOT_TOKEN or not CHAT_ID:
         print("ERRO: defina TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID nas variáveis de ambiente.")
@@ -338,6 +361,17 @@ def send_telegram_message(text):
 # ----------------------------------------------------------------------------
 
 def main():
+    # Quando o workflow é disparado manualmente (botão "Run workflow" no
+    # GitHub Actions), o GitHub define GITHUB_EVENT_NAME=workflow_dispatch
+    # automaticamente. Aproveitamos isso pra mandar uma mensagem de teste
+    # garantida, só nesse caso — a rodada automática de hora em hora
+    # (GITHUB_EVENT_NAME=schedule) não é afetada e continua só avisando
+    # quando acha um setup de verdade.
+    if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
+        print("Execução manual detectada — enviando mensagem de teste...")
+        ok = send_telegram_message(build_test_message())
+        print("  -> mensagem de teste enviada" if ok else "  -> FALHOU ao enviar a mensagem de teste")
+
     print(f"[{datetime.now(timezone.utc).isoformat()}] Iniciando varredura de "
           f"{len(WATCHLIST)} moedas...")
     encontrados = 0
