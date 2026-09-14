@@ -198,7 +198,15 @@ SCALP_DIAG_RSI_BAND = 10           # RSI dentro de 10 pontos do gatilho de scalp
 REVERSAL_DRAWDOWN_DIAG_BAND = 0.05  # até 5 pontos percentuais abaixo do drawdown mínimo
 DIAGNOSTIC_TOP_N = 12               # quantas moedas entram no resumo de diagnóstico
 
-BINANCE_BASE = "https://api.binance.com"
+# Hosts pra dados públicos da Binance, em ordem de tentativa. O primeiro é o
+# espelho oficial de dados públicos (sem autenticação) — ele evita o bloqueio
+# geográfico (HTTP 451) que o api.binance.com às vezes devolve dependendo de
+# em qual região o runner do GitHub Actions caiu daquela vez. O segundo é o
+# host normal, como fallback caso o espelho fique fora do ar.
+BINANCE_BASES = [
+    "https://data-api.binance.vision",
+    "https://api.binance.com",
+]
 TELEGRAM_BASE = "https://api.telegram.org"
 
 API_SLEEP = 0.2   # pausa entre chamadas à Binance (respeita rate limit)
@@ -223,12 +231,30 @@ TRANSLATE_BASE = "https://api.mymemory.translated.net/get"
 # DADOS DA BINANCE
 # ----------------------------------------------------------------------------
 
+def _binance_get(path, timeout=20):
+    """
+    GET num endpoint público da Binance, tentando os hosts de BINANCE_BASES
+    em ordem. Existe por causa do erro 451 (bloqueio geográfico) que
+    api.binance.com às vezes devolve dependendo de onde o runner do GitHub
+    Actions está hospedado — o espelho de dados públicos (data-api.binance.
+    vision) tentado primeiro evita isso na maioria dos casos.
+    """
+    last_error = None
+    for base in BINANCE_BASES:
+        url = f"{base}{path}"
+        req = urllib.request.Request(url, headers={"User-Agent": "vela-monitor-bot/1.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            last_error = e
+            continue
+    raise last_error
+
+
 def fetch_klines(symbol: str, interval: str, limit: int):
     """Busca candles públicos da Binance. Não precisa de API key."""
-    url = f"{BINANCE_BASE}/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}"
-    req = urllib.request.Request(url, headers={"User-Agent": "vela-monitor-bot/1.0"})
-    with urllib.request.urlopen(req, timeout=20) as resp:
-        raw = json.loads(resp.read().decode("utf-8"))
+    raw = _binance_get(f"/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}")
     candles = []
     for row in raw:
         candles.append({
@@ -250,10 +276,7 @@ def fetch_top_usdt_symbols(limit=TOP_N_SYMBOLS):
     lista fixa. Remove stablecoins contra USDT e tokens alavancados, que não
     fazem sentido pra análise de padrão técnico.
     """
-    url = f"{BINANCE_BASE}/api/v3/ticker/24hr"
-    req = urllib.request.Request(url, headers={"User-Agent": "vela-monitor-bot/1.0"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        raw = json.loads(resp.read().decode("utf-8"))
+    raw = _binance_get("/api/v3/ticker/24hr", timeout=30)
     time.sleep(API_SLEEP)
 
     candidatos = []
