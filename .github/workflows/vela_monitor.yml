@@ -3,7 +3,12 @@ name: Vela Monitor - varredura horária
 on:
   schedule:
     - cron: "0 * * * *"   # a cada hora, no minuto 0 (horário UTC)
-  workflow_dispatch: {}     # permite rodar manualmente pelo botão "Run workflow"
+  workflow_dispatch:        # permite rodar manualmente pelo botão "Run workflow"
+    inputs:
+      symbol:
+        description: 'Moeda pra analisar em detalhe (ex.: SOLUSDT) — deixe em branco pra pular'
+        required: false
+        default: ''
 
 jobs:
   scan:
@@ -21,4 +26,5 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          SYMBOL_QUERY: ${{ github.event.inputs.symbol }}
         run: python vela_monitor_bot.py
