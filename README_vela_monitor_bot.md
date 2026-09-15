@@ -188,6 +188,32 @@ cenários "vários indicadores batendo ao mesmo tempo" que antes passavam
 batido — incluindo leituras como "suporte no 4h + 5m em sobrevenda extrema
 + suporte também no 1h".
 
+## Plano B: próximo ponto técnico se o stop for rompido
+
+Todo sinal COMPRAR/VENDER com stop agora tenta calcular um "plano B"
+(linha 🗺️ no cartão): romper o stop não significa necessariamente que a
+tendência maior acabou — pode ser só o preço procurando um fundo
+ascendente (ou topo descendente) um degrau abaixo. Em vez de deixar isso
+vago, o bot aponta o próximo nível técnico de verdade (`adiciona_plano_b` /
+`_plano_b_texto`):
+
+- **No mesmo tempo gráfico do sinal** — a EMA ou o suporte/resistência
+  anterior mais próximo, além do stop.
+- **Num "zoom out" pro diário** — EMA26/EMA50 do 1d e o pivô de suporte/
+  resistência anterior, pra ver se a correção maior ainda cabe dentro da
+  tendência mais ampla.
+
+Isso não usa o RSI pra achar um preço — RSI não converte de volta num
+preço futuro com confiança (o preço é que leva a um RSI, não o contrário).
+O texto só cita, como referência de contexto, que essas regiões
+historicamente tendem a coincidir com RSI em sobrevenda/sobrecompra no
+tempo gráfico maior — deixando claro que não é um cálculo, é orientação de
+onde olhar.
+
+Quando o bot não consegue achar nenhum nível técnico nos dados que já tem
+(EMA ou pivô insuficiente), a linha 🗺️ simplesmente não aparece — em vez de
+uma resposta vaga ou inventada.
+
 ## Cardápio de trade: sinais separados de 5m (day trade) e 1h (swing)
 
 O sinal de "Cascata de RSI" antigo exigia RSI de 15m **e** de 1h em zona de
@@ -270,6 +296,14 @@ confirmado sugere possível retomada da tendência de alta vigente.
 
 🚨 Alerta: Volume atual está 55% da média — volume abaixo da média
 enfraquece o setup.
+
+🗺️ Se o stop for rompido: Romper o stop não invalida necessariamente a
+tendência maior — pode ser só o preço procurando um fundo ascendente um
+degrau abaixo: no mesmo tempo gráfico, o próximo nível é a EMA50 em
+73.100; dando um zoom out pro diário, o próximo é o suporte anterior em
+71.800. Historicamente essas regiões tendem a coincidir com RSI em
+sobrevenda/sobrecompra no tempo gráfico maior, mas isso é só referência de
+contexto (RSI não dá pra converter de volta num preço calculado).
 
 Checklist:
   ✅ Preço na zona de Fibonacci 0.382

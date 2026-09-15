@@ -870,6 +870,103 @@ def aplica_filtros_qualidade(sinais, market_trend, diagnosticos_extra=None):
 
 
 # ----------------------------------------------------------------------------
+# PLANO B — próximo ponto técnico se o stop for rompido
+# ----------------------------------------------------------------------------
+#
+# Ideia: romper o stop não significa necessariamente que a tendência maior
+# acabou — às vezes é só o preço procurando um fundo ascendente (ou topo
+# descendente) um degrau abaixo (ou acima). Em vez de deixar isso vago
+# ("fique de olho no gráfico"), o bot aponta o próximo nível técnico de
+# verdade: primeiro no mesmo tempo gráfico do sinal (EMA ou suporte/
+# resistência anterior além do stop), depois um "zoom out" pro diário
+# (EMA26/EMA50 e o pivô anterior) — pra ver se essa correção maior ainda
+# cabe dentro do quadro mais amplo. Não usa RSI pra achar um preço (RSI não
+# converte de volta pra um preço futuro com confiança — é o preço que leva
+# a um RSI, não o contrário), só cita como referência histórica de contexto.
+
+PLANO_B_EMA_PERIODS_TF = CONFLUENCE_EMA_PERIODS   # mesmo conjunto usado na confluência
+PLANO_B_EMA_PERIODS_DIARIO = (26, 50)
+
+
+def _plano_b_proximo_nivel(candles, ema_periods, acao, stop):
+    """
+    Nível técnico (EMA ou pivô de suporte/resistência) mais próximo do
+    stop, na direção "além" dele (abaixo pra COMPRAR, acima pra VENDER) —
+    ou None se não achar nenhum candidato nesses candles.
+    """
+    if not candles or len(candles) < max((*ema_periods, PIVOT_LEN * 2)) + 5:
+        return None
+    closes = [c["close"] for c in candles]
+    pivot_highs, pivot_lows = find_pivots(candles, PIVOT_LEN)
+
+    candidatos = []
+    for periodo in ema_periods:
+        ema = compute_ema(closes, periodo)
+        if ema is None or ema <= 0:
+            continue
+        if (acao == "COMPRAR" and ema < stop) or (acao == "VENDER" and ema > stop):
+            candidatos.append((abs(stop - ema), f"EMA{periodo} em {fmt_price(ema)}"))
+
+    if acao == "COMPRAR":
+        niveis = [p for _, p in pivot_lows if p < stop]
+        if niveis:
+            nivel = max(niveis)
+            candidatos.append((abs(stop - nivel), f"suporte anterior em {fmt_price(nivel)}"))
+    else:
+        niveis = [p for _, p in pivot_highs if p > stop]
+        if niveis:
+            nivel = min(niveis)
+            candidatos.append((abs(stop - nivel), f"resistência anterior em {fmt_price(nivel)}"))
+
+    if not candidatos:
+        return None
+    candidatos.sort(key=lambda x: x[0])
+    return candidatos[0][1]
+
+
+def _plano_b_texto(acao, stop, candles_tf, candles_d):
+    if acao not in ("COMPRAR", "VENDER") or stop is None:
+        return None
+
+    nivel_mesmo_tf = _plano_b_proximo_nivel(candles_tf, PLANO_B_EMA_PERIODS_TF, acao, stop)
+    nivel_diario = _plano_b_proximo_nivel(candles_d, PLANO_B_EMA_PERIODS_DIARIO, acao, stop)
+    if nivel_mesmo_tf is None and nivel_diario is None:
+        return None
+
+    lado = "fundo ascendente" if acao == "COMPRAR" else "topo descendente"
+    partes = []
+    if nivel_mesmo_tf:
+        partes.append(f"no mesmo tempo gráfico, o próximo nível é o {nivel_mesmo_tf}")
+    if nivel_diario:
+        partes.append(f"dando um zoom out pro diário, o próximo é o {nivel_diario}")
+
+    return (
+        f"Romper o stop não invalida necessariamente a tendência maior — pode ser só "
+        f"o preço procurando um {lado} um degrau abaixo: " + "; e ".join(partes) + ". "
+        f"Historicamente essas regiões tendem a coincidir com RSI em sobrevenda/"
+        f"sobrecompra no tempo gráfico maior, mas isso é só referência de contexto "
+        f"(RSI não dá pra converter de volta num preço calculado)."
+    )
+
+
+def adiciona_plano_b(sinais, candles_tf, candles_d):
+    """
+    Preenche `sig["plano_b"]` (se conseguir calcular algum nível) pra cada
+    sinal COMPRAR/VENDER da lista — usa os candles do timeframe do sinal
+    (`candles_tf`, ex.: candles_4h) e os candles diários (`candles_d`) já
+    buscados pelo chamador, sem nenhuma chamada de rede extra.
+    """
+    for sig in sinais:
+        try:
+            texto = _plano_b_texto(sig.get("acao"), sig.get("stop_price"), candles_tf, candles_d)
+            if texto:
+                sig["plano_b"] = texto
+        except Exception:
+            pass
+    return sinais
+
+
+# ----------------------------------------------------------------------------
 # SINAL 1 — PULLBACK (swing)
 # ----------------------------------------------------------------------------
 
@@ -2298,6 +2395,7 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
     ) if d]
 
     sinais_ativos = aplica_filtros_qualidade(sinais_ativos, market_trend, diagnosticos_extra=diagnosticos)
+    sinais_ativos = adiciona_plano_b(sinais_ativos, candles_4h, candles_d)
 
     contexto_txt = None
     if symbol != "BTCUSDT" and candles_d:
@@ -2421,10 +2519,12 @@ def _render_signal_core(sig, indent=""):
     📍 como entrar (a mercado ou fracionada, ver `_entrada_texto`), 🔴 stop
     da corretora, 🎯 alvo(s) (com nota de realizar parcial/segurar quando
     for mais de um alvo, típico de swing), 💡 resumo de uma linha do motivo
-    técnico, 💰 preço agora, 🧠 explicação com contexto, e 🚨 alerta quando
-    tiver. Compartilhado entre a mensagem de sinal único e a combinada — só
-    muda a indentação (usada quando o bloco entra dentro de uma mensagem
-    maior).
+    técnico, 💰 preço agora, 🧠 explicação com contexto, 🚨 alerta quando
+    tiver, e 🗺️ o "plano B" (próximo nível técnico, no mesmo tempo gráfico
+    e num zoom out pro diário, se o stop for rompido — ver `adiciona_plano_b`)
+    quando o bot conseguiu calcular algum. Compartilhado entre a mensagem
+    de sinal único e a combinada — só muda a indentação (usada quando o
+    bloco entra dentro de uma mensagem maior).
     """
     entry = sig.get("entry_price")
     stop = sig.get("stop_price")
@@ -2453,6 +2553,10 @@ def _render_signal_core(sig, indent=""):
     if sig.get("aviso"):
         linhas.append("")
         linhas.append(f"{indent}🚨 Alerta: {sig['aviso']}")
+
+    if sig.get("plano_b"):
+        linhas.append("")
+        linhas.append(f"{indent}🗺️ Se o stop for rompido: {sig['plano_b']}")
 
     checklist_linhas = _checklist_linhas(sig.get("checklist"))
     if checklist_linhas:
@@ -2672,6 +2776,7 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
             print(f"  {symbol}: erro no check de reversão leve ({e})")
 
     sinais = aplica_filtros_qualidade(sinais, market_trend, diagnosticos_extra=diagnosticos)
+    sinais = adiciona_plano_b(sinais, candles_4h, candles_d)
     return sinais, diagnosticos
 
 
