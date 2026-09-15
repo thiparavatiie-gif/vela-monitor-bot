@@ -214,6 +214,24 @@ Quando o bot não consegue achar nenhum nível técnico nos dados que já tem
 (EMA ou pivô insuficiente), a linha 🗺️ simplesmente não aparece — em vez de
 uma resposta vaga ou inventada.
 
+### Pressão de volume — "o volume é a gasolina do mercado"
+
+Um suporte ou resistência não rompe sozinho — precisa de volume empurrando.
+`analisa_pressao_volume` compara o volume médio dos candles vermelhos
+(baixa) e verdes (alta) nos últimos candles contra os anteriores: se o
+volume do lado **contrário à posição** (vendedor pra quem comprou perto de
+um suporte, comprador pra quem vendeu perto de uma resistência) está
+crescendo (`VOLUME_PRESSURE_GROWTH_MULT`, 15%+ de aumento por padrão), o
+bot considera que o nível tende a ceder com mais força — "como faca na
+manteiga" — em vez de aos poucos.
+
+Quando isso acontece:
+
+- Vira um **🚨 Alerta** no próprio sinal — é um risco pra entrada agora,
+  não só uma questão futura.
+- Deixa o **🗺️ Plano B** mais enfático — o texto abre avisando que o
+  rompimento fica mais provável antes de explicar os próximos níveis.
+
 ## Cardápio de trade: sinais separados de 5m (day trade) e 1h (swing)
 
 O sinal de "Cascata de RSI" antigo exigia RSI de 15m **e** de 1h em zona de

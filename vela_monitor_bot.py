@@ -105,6 +105,17 @@
 #      Mercado sem tendência clara, ou com os tempos gráficos discordando
 #      entre si (neutro) não filtra nada.
 #
+#  PLANO B E PRESSÃO DE VOLUME (todo sinal COMPRAR/VENDER com stop): o bot
+#  aponta o próximo nível técnico (EMA ou suporte/resistência, no mesmo
+#  tempo gráfico e num zoom out pro diário) se o stop for rompido — ver
+#  `adiciona_plano_b`. Além disso, checa a "pressão de volume" contrária à
+#  posição (`analisa_pressao_volume`): se o volume do lado oposto (vendedor
+#  pra quem comprou, comprador pra quem vendeu) está crescendo nos candles
+#  mais recentes — "o volume é a gasolina do mercado" — isso vira um alerta
+#  no próprio sinal (risco pra entrada agora) e deixa o plano B mais
+#  enfático (o rompimento fica mais provável, não é só uma possibilidade
+#  remota).
+#
 #  RESTRIÇÃO TEMPORÁRIA (SOMENTE_CORE_SYMBOLS, ligada por padrão): por
 #  pedido, o bot não analisa nem manda mensagem de NENHUMA moeda fora de
 #  CORE_SYMBOLS (BTC/ETH) — a varredura completa do watchlist (itens 3-7
@@ -887,6 +898,75 @@ def aplica_filtros_qualidade(sinais, market_trend, diagnosticos_extra=None):
 PLANO_B_EMA_PERIODS_TF = CONFLUENCE_EMA_PERIODS   # mesmo conjunto usado na confluência
 PLANO_B_EMA_PERIODS_DIARIO = (26, 50)
 
+# --- Pressão de volume — "o volume é a gasolina do mercado" ---
+# Ideia: um suporte/resistência não rompe sozinho, precisa de volume
+# empurrando. Se o volume do lado CONTRÁRIO à posição (vendedor pra quem
+# comprou perto de um suporte, comprador pra quem vendeu perto de uma
+# resistência) está crescendo nos candles mais recentes, o nível tende a
+# ceder com mais força ("como faca na manteiga") em vez de aos poucos.
+VOLUME_PRESSURE_LOOKBACK = 6      # candles (do timeframe do sinal) considerados
+VOLUME_PRESSURE_RECENT_N = 3      # quantos dos mais recentes comparar contra os anteriores
+VOLUME_PRESSURE_GROWTH_MULT = 1.15  # 15%+ de aumento já conta como "crescente"
+
+
+def analisa_pressao_volume(candles, lookback=VOLUME_PRESSURE_LOOKBACK, recent_n=VOLUME_PRESSURE_RECENT_N):
+    """
+    Compara o volume médio dos candles vermelhos (baixa, close < open) e
+    verdes (alta, close > open) nos `recent_n` candles mais recentes contra
+    os candles anteriores dentro da janela `lookback` — pra ver se o volume
+    de um dos dois lados está crescendo. Devolve
+    {"vendedor": {...}, "comprador": {...}} (só as chaves com dado
+    suficiente pra comparar) ou None se não tiver candles nem pra formar as
+    duas metades da janela.
+    """
+    if len(candles) < lookback:
+        return None
+    window = candles[-lookback:]
+    recentes = window[-recent_n:]
+    anteriores = window[:-recent_n]
+    if not anteriores or not recentes:
+        return None
+
+    def _vol_medio(cs, lado):
+        vols = [c["volume"] for c in cs if (c["close"] < c["open"] if lado == "vendedor" else c["close"] > c["open"])]
+        return (sum(vols) / len(vols)) if vols else 0.0
+
+    resultado = {}
+    for lado in ("vendedor", "comprador"):
+        vol_recente = _vol_medio(recentes, lado)
+        vol_anterior = _vol_medio(anteriores, lado)
+        if vol_anterior <= 0 or vol_recente <= 0:
+            continue
+        razao = vol_recente / vol_anterior
+        resultado[lado] = {
+            "vol_recente": vol_recente, "vol_anterior": vol_anterior,
+            "razao": razao, "crescente": razao >= VOLUME_PRESSURE_GROWTH_MULT,
+        }
+    return resultado or None
+
+
+def _pressao_volume_texto(acao, candles):
+    """
+    Se o volume do lado contrário à posição (vendedor pra COMPRAR, comprador
+    pra VENDER) estiver crescendo nos candles mais recentes, devolve um
+    texto de alerta sobre isso — senão None.
+    """
+    if acao not in ("COMPRAR", "VENDER"):
+        return None
+    pressao = analisa_pressao_volume(candles)
+    if not pressao:
+        return None
+    lado_contrario = "vendedor" if acao == "COMPRAR" else "comprador"
+    info = pressao.get(lado_contrario)
+    if not info or not info["crescente"]:
+        return None
+    return (
+        f"Volume {lado_contrario} crescendo nos últimos candles (~{info['razao']:.1f}x o "
+        f"volume médio de {lado_contrario} de antes) — o volume é a 'gasolina' do "
+        f"movimento, então isso aumenta a chance do nível ceder com força (tipo faca na "
+        f"manteiga) em vez de aos poucos."
+    )
+
 
 def _plano_b_proximo_nivel(candles, ema_periods, acao, stop):
     """
@@ -924,7 +1004,7 @@ def _plano_b_proximo_nivel(candles, ema_periods, acao, stop):
     return candidatos[0][1]
 
 
-def _plano_b_texto(acao, stop, candles_tf, candles_d):
+def _plano_b_texto(acao, stop, candles_tf, candles_d, pressao_texto=None):
     if acao not in ("COMPRAR", "VENDER") or stop is None:
         return None
 
@@ -940,13 +1020,16 @@ def _plano_b_texto(acao, stop, candles_tf, candles_d):
     if nivel_diario:
         partes.append(f"dando um zoom out pro diário, o próximo é o {nivel_diario}")
 
-    return (
+    texto = (
         f"Romper o stop não invalida necessariamente a tendência maior — pode ser só "
         f"o preço procurando um {lado} um degrau abaixo: " + "; e ".join(partes) + ". "
         f"Historicamente essas regiões tendem a coincidir com RSI em sobrevenda/"
         f"sobrecompra no tempo gráfico maior, mas isso é só referência de contexto "
         f"(RSI não dá pra converter de volta num preço calculado)."
     )
+    if pressao_texto:
+        texto = f"{pressao_texto} Se isso realmente empurrar o preço além do stop: {texto}"
+    return texto
 
 
 def adiciona_plano_b(sinais, candles_tf, candles_d):
@@ -954,11 +1037,20 @@ def adiciona_plano_b(sinais, candles_tf, candles_d):
     Preenche `sig["plano_b"]` (se conseguir calcular algum nível) pra cada
     sinal COMPRAR/VENDER da lista — usa os candles do timeframe do sinal
     (`candles_tf`, ex.: candles_4h) e os candles diários (`candles_d`) já
-    buscados pelo chamador, sem nenhuma chamada de rede extra.
+    buscados pelo chamador, sem nenhuma chamada de rede extra. Também
+    checa a pressão de volume contrária (`_pressao_volume_texto`): quando
+    o volume do lado oposto à posição está crescendo, isso entra tanto no
+    "aviso" do próprio sinal (é um risco pra entrada agora) quanto no
+    início do texto do plano B (deixa claro que o rompimento fica mais
+    provável, não é só uma possibilidade remota).
     """
     for sig in sinais:
         try:
-            texto = _plano_b_texto(sig.get("acao"), sig.get("stop_price"), candles_tf, candles_d)
+            acao = sig.get("acao")
+            pressao_texto = _pressao_volume_texto(acao, candles_tf)
+            if pressao_texto:
+                sig["aviso"] = (sig["aviso"] + " " + pressao_texto) if sig.get("aviso") else pressao_texto
+            texto = _plano_b_texto(acao, sig.get("stop_price"), candles_tf, candles_d, pressao_texto=pressao_texto)
             if texto:
                 sig["plano_b"] = texto
         except Exception:
