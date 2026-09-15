@@ -134,13 +134,25 @@ alinhados na mesma direção ao mesmo tempo:
 
 - Fibonacci 0.382, 0.5 **ou** 0.618 da última perna de 4h.
 - EMA 12, 21, 50 **ou** 200 — tanto no 4h quanto no 15m.
-- RSI em sobrevenda/sobrecompra no 15m e no 1h.
+- Suporte/resistência **recente** no 4h e no 1h — o fundo (ou topo) dos
+  últimos 20 candles, mesmo antes disso virar um pivô confirmado (pivô
+  sempre atrasa, porque exige velas de confirmação dos dois lados). É o
+  tipo de "suporte no 4h em tal preço" que dá pra ver olhando o gráfico na
+  hora.
+- RSI em sobrevenda/sobrecompra no 15m, no 1h **e** no 5m (limite mais
+  apertado no 5m — 20/80 em vez de 35/65 — por ser "sobrevenda/sobrecompra
+  extrema" de timeframe curto).
 
 Com 3 ou mais fatores alinhados, vira sinal de verdade ("Confluência
 multi-indicador — possível fundo ascendente/topo descendente se
 formando"); com 2, aparece como near-miss no status core e no diagnóstico
-manual. Isso deve pegar bem mais dos cenários "vários indicadores batendo
-ao mesmo tempo" que antes passavam batido.
+manual. A mensagem do sinal também traz uma linha de **invalidação**,
+lembrando que romper o stop tende a acelerar o movimento em direção ao
+próximo suporte/resistência (ainda não automático — é um aviso pra você
+olhar o gráfico e achar esse próximo nível). Isso deve pegar bem mais dos
+cenários "vários indicadores batendo ao mesmo tempo" que antes passavam
+batido — incluindo leituras como "suporte no 4h + 5m em sobrevenda extrema
++ suporte também no 1h".
 
 ## Mensagens mais diretas: checklist, alvo e sem duplicidade
 
@@ -157,27 +169,31 @@ as duas estratégias sugerirem lados opostos (compra x venda) — em vez de
 duas mensagens cheias repetidas, que davam a impressão de "operação
 clonada".
 
-**A varredura de toda hora não manda mais uma mensagem solta por moeda.**
-Agora ela roda em todo o watchlist por baixo dos panos (pra escolher as
-melhores altcoins do momento e alimentar o relatório categorizado), mas só
-manda **uma mensagem por rodada** ("🔭 VELA MONITOR — STATUS"), sempre com:
+**A varredura de toda hora não manda mais uma mensagem solta por moeda —
+e agora, por padrão, só analisa BTC e ETH.** A varredura completa do
+watchlist (50 moedas x ~5 chamadas cada) estava deixando toda rodada
+demorada, então agora ela só roda:
 
-- **BTC, ETH e XRP** — fixos, sempre aparecem.
-- **2 altcoins "em destaque"** — escolhidas a cada rodada entre as que têm
-  sinal de verdade ativo (prioridade) ou estão mais perto de bater um.
+- Nos 6 horários do relatório categorizado (seção abaixo).
+- Numa execução manual (**Run workflow**).
 
-Pra cada uma dessas 5 moedas, a mensagem mostra o sinal ativo se tiver, ou
-os **near-miss** dela (o que antes só aparecia numa execução manual — ex.:
-"RSI a 4 pontos do gatilho de scalp") junto com os cenários de alta/baixa
-quando não tem nada disparado nem perto. Isso resolve dois problemas ao
-mesmo tempo: corta a enxurrada de mensagens de moedas que você não
-acompanha, e passa a te avisar de setups se formando no BTC/ETH/XRP, que
-antes só apareciam rodando o diagnóstico manualmente.
+Fora desses momentos, toda rodada horária normal é rápida: analisa só
+`CORE_SYMBOLS` (por padrão `["BTCUSDT", "ETHUSDT"]`) e manda **uma
+mensagem só** ("🔭 VELA MONITOR — STATUS"), mostrando o sinal ativo de cada
+um se tiver, ou o **near-miss** dele (o que antes só aparecia numa
+execução manual — ex.: "2 fatores já alinhados pra um possível fundo
+ascendente: RSI do 15m em sobrevenda; RSI do 1h em sobrevenda") junto com
+os cenários de alta/baixa quando não tem nada disparado nem perto.
+
+Pra voltar a incluir XRP e 2 altcoins em destaque (como era antes), edite
+`CORE_SYMBOLS` e `CORE_EXTRA_ALTS_N` no topo do script — só que aí a
+varredura completa do watchlist volta a rodar toda hora (mais lento de
+novo), porque é dela que vem a escolha das melhores altcoins.
 
 **Importante sobre execuções manuais**: o relatório categorizado completo
 (seção abaixo) só dispara automaticamente pelo relógio — testar manualmente
 perto de um dos 6 horários não empilha mais o relatório inteiro em cima da
-varredura normal e do diagnóstico, o que antes deixava a execução manual
+varredura completa e do diagnóstico, o que antes deixava a execução manual
 bem mais pesada e demorada.
 
 ## Relatório categorizado (6x por dia)
