@@ -323,6 +323,43 @@ vela enquanto o RSI continua esticado no mesmo movimento:
 Os três passam pelos mesmos filtros de qualidade de todo sinal (risco/
 retorno mínimo de 1:2 e tendência majoritária do mercado).
 
+## Reteste após o 1º toque de RSI no 4h (`check_retest_4h`)
+
+Segunda etapa do sinal de 4h acima, pensada pra a ideia de "escada de fundo
+ascendente": cada tempo gráfico maior tende a formar sua própria base
+quando o tempo gráfico imediatamente abaixo dele entra em sobrevenda/
+sobrecompra (ex.: base no semanal quando o 4h entra em sobrevenda, base no
+diário quando o 1h entra em sobrevenda, e assim por diante). Depois do
+primeiro toque de RSI no 4h, o preço costuma dar um repique de verdade
+(pelo menos 3% de distância do fundo/topo, pra não confundir com ruído) e
+depois voltar pra **retestar** aquele fundo/topo específico. Se segurar
+ali sem romper — é isso que o sinal detecta — pode ser a base de um fundo/
+topo ascendente/descendente maior, no semanal.
+
+Como funciona na prática:
+- Guarda o fundo (compra) ou topo (venda) da vela onde o RSI de 4h fez o
+  primeiro toque, procurando até `RETEST_4H_LOOKBACK` velas pra trás (~10
+  dias).
+- Só considera reteste de verdade depois de confirmar o repique
+  (`RETEST_4H_MIN_BOUNCE_PCT`, 3%) — sem isso, ainda pode ser só o próprio
+  movimento de queda/alta original, não uma volta de verdade.
+- Preço precisa estar a no máximo `RETEST_4H_ZONE_TOLERANCE` (2%) do nível
+  original pra contar como reteste.
+- **Stop**: logo além (0.5% de margem) do próprio fundo/topo da vela do
+  toque original — é a referência mais natural de invalidação: se romper
+  ali, o cenário de base muda de verdade.
+- **Alvo 1**: o pivô técnico mais próximo no 4h, na direção do sinal.
+- **Alvo 2 (quando dá pra calcular)**: quando o script tem os candles
+  semanais disponíveis, soma um segundo alvo mais ambicioso mirando o
+  próximo pivô do **semanal** além do alvo 1 — o tipo de "se romper o
+  primeiro alvo, o próximo é o topo/fundo maior lá no semanal".
+- **Fatores extra de confluência semanal (opcionais, não obrigatórios)**:
+  quando o preço também está perto da EMA12 no semanal e/ou perto da zona
+  de Fibonacci 0.382 da última perna semanal, o sinal menciona isso como
+  reforço — é o cenário descrito como "ideal" (RSI do 4h em sobrevenda +
+  reteste + encostando na EMA12 semanal + perto do 0.382 do último
+  impulso), mas o sinal já dispara mesmo sem esses extras.
+
 ## Tendência em 3 tempos gráficos (diário + semanal + mensal)
 
 O filtro de tendência majoritária do mercado (ver seção de filtros acima)

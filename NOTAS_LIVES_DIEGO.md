@@ -329,6 +329,19 @@ confiável), mas é o 3º padrão mais recorrente até agora.
    necessidade de mudança. A ideia geral do bot (monitorar + filtrar os
    melhores sinais) também foi validada pelo "monitor de mercado" que ele
    descreve usar (live #4).
+7. **"Escada de fundo ascendente" — cada tempo gráfico maior forma base
+   quando o tempo gráfico imediatamente abaixo entra em sobrevenda/
+   sobrecompra** (1M↔1D, 1semana↔4h, 1D↔1h, 4h↔15m, 1h↔5m) — não veio de
+   uma live, o Thiago descreveu direto no chat usando o BTC ao vivo como
+   exemplo (alta de 58k até quase 82.5k, recuo, RSI do 4h batendo
+   sobrevenda e agora retestando o fundo daquela vela, olhando pra formar
+   base de fundo ascendente no semanal). **✅ IMPLEMENTADO** o primeiro
+   degrau da escada (4h→semanal): `check_retest_4h` detecta o reteste
+   depois do 1º toque de RSI no 4h, com stop no fundo/topo do toque
+   original, alvo técnico do 4h e (quando dá) um 2º alvo no semanal, mais
+   fatores extra de confluência semanal (EMA12 e Fibonacci 0.382) — 15/09/2026.
+   Os outros 4 degraus da escada (1M↔1D, 1D↔1h, 15m↔4h, 5m↔1h) ainda não
+   foram implementados — mesma lógica, só trocando os tempos gráficos.
 
 ---
 

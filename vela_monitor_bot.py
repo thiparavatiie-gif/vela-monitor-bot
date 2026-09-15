@@ -29,6 +29,20 @@
 #      de movimento — por isso é tratado como o setup de MAIOR convicção do
 #      cardápio, mesmo ainda exigindo stop como qualquer outro sinal.
 #
+#   3b) RETESTE APÓS 1º TOQUE DE RSI NO 4H (swing, `check_retest_4h`) —
+#      segunda etapa do sinal acima: depois do primeiro toque no 4h, o preço
+#      costuma dar um repique de verdade (não é só ruído) e depois voltar
+#      pra RETESTAR o fundo/topo daquela vela específica. Se segurar ali
+#      (sem romper de verdade), é a base de um possível fundo/topo
+#      ascendente/descendente num tempo gráfico maior (semanal) — "escada"
+#      onde cada tempo gráfico maior forma sua própria base quando o tempo
+#      gráfico imediatamente abaixo entra em sobrevenda/sobrecompra. O stop
+#      usa o próprio fundo/topo do toque original como referência, e quando
+#      o semanal está disponível o sinal também soma (sem exigir) fatores
+#      extra de confluência semanal — EMA12 e Fibonacci 0.382 da última
+#      perna semanal — e um segundo alvo mais ambicioso, mirando o próximo
+#      pivô do semanal além do alvo técnico do 4h.
+#
 #   4) BOTTOM FISHING (posição) — moeda muito abaixo (55%+) da própria máxima
 #      HISTÓRICA e formando fundos ascendentes no diário, indicando possível
 #      base de longo prazo se formando.
@@ -298,6 +312,16 @@ SCALP_1H_RSI_OVERSOLD = 31     # o Diego comenta um alarme de RSI ~31 no 1h
 SCALP_1H_RSI_OVERBOUGHT = 69
 SCALP_4H_RSI_OVERSOLD = SCALP_RSI_OVERSOLD    # mesmo limiar clássico 30/70,
 SCALP_4H_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT  # mas no 4h isso é bem mais raro
+
+# --- Reteste do fundo/topo depois do 1º toque de RSI no 4h (SIGNAL 3b,
+# "escada de fundo ascendente" — depois do 1º toque em sobrevenda/sobrecompra
+# no 4h, o preço costuma dar um repique e depois voltar pra retestar aquele
+# fundo/topo; se segurar ali, pode ser a base de um fundo/topo ascendente/
+# descendente no semanal, com o próprio nível do toque original como stop) ---
+RETEST_4H_LOOKBACK = 60          # candles de 4h pra procurar o toque mais recente (~10 dias)
+RETEST_4H_MIN_BOUNCE_PCT = 0.03  # precisa ter se afastado pelo menos 3% do nível antes de voltar
+RETEST_4H_ZONE_TOLERANCE = 0.02  # até 2% de distância do nível original já conta como reteste
+RETEST_4H_STOP_BUFFER = 0.005    # stop um pouco além do fundo/topo original, não exatamente em cima
 
 # --- Sugestão de mover o stop pra zero a zero (memória da última operação) ---
 # múltiplo de R (distância entrada→stop) que o preço precisa andar a favor,
@@ -1374,6 +1398,152 @@ def check_scalp_4h(symbol, candles_4h):
         aviso="Sinal raro e de alta convicção, mas ainda assim exige stop — "
               "nenhum setup é garantido.",
     )
+
+
+def _find_last_rsi_touch(candles, oversold, overbought, lookback):
+    """
+    Varre pra trás (sem contar a vela atual) até `lookback` velas, procurando
+    o primeiro-toque de RSI mais recente numa zona de extremo — a mesma
+    lógica de `_first_touch_rsi`, mas olhando pro passado em vez de só a
+    última vela. Retorna (idx, lado, nivel) do toque mais recente achado —
+    `nivel` é o fundo (sobrevenda) ou topo (sobrecompra) daquela vela — ou
+    None se não achou nenhum toque dentro da janela.
+    """
+    n = len(candles)
+    if n < 20:
+        return None
+    closes = [c["close"] for c in candles]
+    limite = max(1, n - 1 - lookback)
+    for idx in range(n - 2, limite - 1, -1):
+        lado, _ = _first_touch_rsi(closes[:idx + 1], oversold, overbought)
+        if lado:
+            nivel = candles[idx]["low"] if lado == "sobrevenda" else candles[idx]["high"]
+            return idx, lado, nivel
+    return None
+
+
+def check_retest_4h(symbol, candles_4h, candles_w=None):
+    """
+    Segunda etapa do setup de RSI extremo no 4h (SIGNAL 3b — ver
+    check_scalp_4h): depois do primeiro toque, o preço costuma dar um
+    repique e depois voltar pra RETESTAR o fundo/topo daquela vela — se
+    segurar ali (sem romper de verdade), é a base de um possível fundo/topo
+    ascendente/descendente num tempo gráfico maior (semanal), com o próprio
+    fundo/topo do toque original servindo de referência pro stop. Quando
+    `candles_w` vem preenchido, soma fatores extra de confluência semanal
+    (EMA12 e Fibonacci 0.382 da última perna semanal) só como contexto —
+    não são obrigatórios pra disparar, mas reforçam a leitura quando batem
+    junto (o cenário descrito: reteste do 4h encostando na EMA12 semanal e
+    perto do 0.382 do último impulso).
+    """
+    achado = _find_last_rsi_touch(candles_4h, SCALP_4H_RSI_OVERSOLD, SCALP_4H_RSI_OVERBOUGHT, RETEST_4H_LOOKBACK)
+    if achado is None:
+        return None
+    idx, lado, nivel = achado
+    if nivel <= 0:
+        return None
+
+    velas_depois = candles_4h[idx + 1:]
+    if not velas_depois:
+        return None
+    acao = "COMPRAR" if lado == "sobrevenda" else "VENDER"
+    price_now = candles_4h[-1]["close"]
+
+    if acao == "COMPRAR":
+        pico_depois = max(c["high"] for c in velas_depois)
+        teve_repique = pico_depois >= nivel * (1 + RETEST_4H_MIN_BOUNCE_PCT)
+    else:
+        fundo_depois = min(c["low"] for c in velas_depois)
+        teve_repique = fundo_depois <= nivel * (1 - RETEST_4H_MIN_BOUNCE_PCT)
+    if not teve_repique:
+        return None  # ainda não teve um repique de verdade — pode ser só ruído
+
+    dist = abs(price_now - nivel) / nivel
+    if dist > RETEST_4H_ZONE_TOLERANCE:
+        return None  # longe demais do nível original pra contar como reteste
+
+    pivot_highs, pivot_lows = find_pivots(candles_4h, PIVOT_LEN)
+    if acao == "COMPRAR":
+        stop = avoid_round_number_stop(nivel * (1 - RETEST_4H_STOP_BUFFER), "compra")
+        candidatos = [p[1] for p in pivot_highs if p[1] > price_now]
+        alvo1 = min(candidatos) if candidatos else None
+    else:
+        stop = avoid_round_number_stop(nivel * (1 + RETEST_4H_STOP_BUFFER), "venda")
+        candidatos = [p[1] for p in pivot_lows if p[1] < price_now]
+        alvo1 = max(candidatos) if candidatos else None
+    if alvo1 is None:
+        return None  # sem alvo técnico no 4h pra checar risco/retorno
+
+    alvos = [alvo1]
+    fatores_extra = []
+    if candles_w and len(candles_w) >= (2 * PIVOT_LEN + 10):
+        ema12_w = compute_ema([c["close"] for c in candles_w], 12)
+        if ema12_w is not None and ema12_w > 0:
+            dist_ema_w = abs(price_now - ema12_w) / ema12_w
+            if dist_ema_w <= CONFLUENCE_EMA_TOLERANCE:
+                fatores_extra.append(f"Preço perto da EMA12 no semanal ({fmt_price(ema12_w)})")
+        pivot_highs_w, pivot_lows_w = find_pivots(candles_w, PIVOT_LEN)
+        leg_w = last_impulse_leg(pivot_highs_w, pivot_lows_w)
+        if leg_w is not None:
+            fib_w = fib_level_price(leg_w, FIB_LEVEL)
+            if price_in_fib_zone(price_now, fib_w, FIB_TOLERANCE):
+                fatores_extra.append(f"Preço na zona de Fibonacci {FIB_LEVEL} da última perna semanal ({fmt_price(fib_w)})")
+            if acao == "COMPRAR":
+                candidatos_w = [p[1] for p in pivot_highs_w if p[1] > alvo1 * 1.01]
+                alvo2 = min(candidatos_w) if candidatos_w else None
+            else:
+                candidatos_w = [p[1] for p in pivot_lows_w if p[1] < alvo1 * 0.99]
+                alvo2 = max(candidatos_w) if candidatos_w else None
+            if alvo2 is not None:
+                alvos.append(alvo2)
+
+    tempo_desde = len(candles_4h) - 1 - idx
+    lado_estrutura = "fundo" if acao == "COMPRAR" else "topo"
+    nivel_txt = "sobrevenda" if lado == "sobrevenda" else "sobrecompra"
+
+    detalhes = [
+        f"Preço agora: {fmt_price(price_now)}",
+        f"RSI 4h tocou {nivel_txt} há {tempo_desde} vela(s) — {lado_estrutura} daquela vela em {fmt_price(nivel)}",
+        f"Preço voltou a retestar essa região agora ({dist * 100:.1f}% de distância)",
+        f"Stop sugerido: {fmt_price(stop)} (logo além do {lado_estrutura} original)",
+        f"Alvo{'s' if len(alvos) > 1 else ''}: {' > '.join(fmt_price(a) for a in alvos)}",
+    ]
+    detalhes.extend(f"  • {f}" for f in fatores_extra)
+
+    checklist = [
+        (f"RSI 4h fez primeiro toque de {nivel_txt} há {tempo_desde} vela(s)", True),
+        ("Repique de verdade depois do toque (não é só ruído)", True),
+        (f"Preço retestando o {lado_estrutura} original sem romper de verdade", True),
+    ]
+    checklist.extend((f, True) for f in fatores_extra)
+
+    extra_txt = ""
+    if fatores_extra:
+        extra_txt = " Reforçando ainda mais: " + "; ".join(fatores_extra) + "."
+
+    explicacao = (
+        f"Depois do primeiro toque do RSI de 4h em {nivel_txt}, o {_fmt_symbol(symbol)} deu um repique "
+        f"e agora está retestando o {lado_estrutura} daquela vela ({fmt_price(nivel)}) sem romper de "
+        "verdade — é o tipo de reteste que, se segurar, pode marcar a base de um "
+        f"{'fundo' if acao == 'COMPRAR' else 'topo'} ascendente/descendente num tempo gráfico maior "
+        f"(semanal), com o próprio nível do toque original servindo de referência pro stop.{extra_txt}"
+    )
+    aviso = (
+        "Reteste ainda pode romper o nível original — se isso acontecer, o cenário de base muda "
+        "e o stop deveria ser respeitado."
+    )
+
+    return {
+        "symbol": symbol, "estilo": "SWING", "acao": acao,
+        "titulo": f"Reteste do {lado_estrutura} após 1º toque de RSI no 4h",
+        "timeframe": "4h" + (" + 1w" if len(alvos) > 1 or fatores_extra else ""),
+        "detalhes": detalhes,
+        "checklist": checklist,
+        "entry_price": price_now, "target_price": alvos[0], "target_prices": alvos, "stop_price": stop,
+        "resumo": f"Reteste do {lado_estrutura} de {fmt_price(nivel)} após o 1º toque de RSI no 4h, {tempo_desde} vela(s) atrás.",
+        "explicacao": explicacao,
+        "aviso": aviso,
+    }
 
 
 # ----------------------------------------------------------------------------
@@ -2508,6 +2678,13 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         pass
     rsi_4h = compute_rsi([c["close"] for c in candles_4h])
 
+    try:
+        sig = check_retest_4h(symbol, candles_4h, candles_w)
+        if sig:
+            sinais_ativos.append(sig)
+    except Exception:
+        pass
+
     rsi_5m = rsi_1h = None
     if candles_5m:
         try:
@@ -3182,6 +3359,13 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
                     diagnosticos.append({"symbol": symbol, **diag})
         except Exception as e:
             print(f"  {symbol}: erro no check de reversão leve ({e})")
+
+    try:
+        sig = check_retest_4h(symbol, candles_4h, candles_w)
+        if sig:
+            sinais.append(sig)
+    except Exception as e:
+        print(f"  {symbol}: erro no check de reteste após toque de RSI no 4h ({e})")
 
     sinais = aplica_filtros_qualidade(sinais, market_trend, diagnosticos_extra=diagnosticos)
     sinais = adiciona_plano_b(sinais, candles_4h, candles_d)
