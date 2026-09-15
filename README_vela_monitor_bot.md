@@ -196,6 +196,12 @@ perto de um dos 6 horários não empilha mais o relatório inteiro em cima da
 varredura completa e do diagnóstico, o que antes deixava a execução manual
 bem mais pesada e demorada.
 
+**Preenchendo o campo `symbol` numa execução manual, a varredura completa do
+watchlist nem roda** — o bot pula direto pra análise só daquela moeda
+(status de BTC/ETH + a análise detalhada da moeda pedida), bem mais rápido.
+A varredura completa (e o diagnóstico de proximidade do watchlist inteiro)
+só roda numa execução manual **sem** preencher o campo `symbol`.
+
 ## Relatório categorizado (6x por dia)
 
 Além dos alertas soltos de cada sinal, o bot manda um relatório organizado
@@ -235,17 +241,32 @@ inverno (geralmente final de outubro) que eu ajusto o cron.
 Toda vez que você roda o workflow manualmente (**Actions → Run workflow**),
 além da mensagem de teste chegam mais duas coisas no Telegram:
 
-- **Diagnóstico de proximidade** — mesmo quando nenhuma moeda bateu um
-  critério de verdade, o script calcula quais moedas do watchlist estão
-  mais perto de bater algum (ex.: "RSI a 6 pontos do gatilho de exaustão",
-  "a 1,8% da zona de Fibonacci"). Não é um alerta de entrada, é só pra você
-  saber o que vale acompanhar de perto.
+- **Diagnóstico de proximidade** — só quando o campo `symbol` fica em
+  branco: mesmo que nenhuma moeda tenha batido um critério de verdade, o
+  script calcula quais moedas do watchlist estão mais perto de bater algum
+  (ex.: "RSI a 6 pontos do gatilho de exaustão", "a 1,8% da zona de
+  Fibonacci"). Não é um alerta de entrada, é só pra você saber o que vale
+  acompanhar de perto — mas exige a varredura completa, então só roda
+  quando você não pediu uma moeda específica.
 - **Consulta por moeda** — no botão **Run workflow** tem um campo opcional
   chamado `symbol`. Preenchendo com uma moeda (ex.: `SOLUSDT`) você recebe
   uma análise detalhada só dela: se algum sinal está ativo agora, qual está
   mais perto de disparar, e um pouco de contexto (se ela está mais forte ou
-  mais fraca que o BTC nos últimos dias). Deixe o campo em branco pra pular
-  essa parte.
+  mais fraca que o BTC nos últimos dias) — e, preenchendo esse campo, o bot
+  pula a varredura completa do watchlist (ela não é necessária pra
+  responder sobre uma moeda só), então essa execução é rápida. Deixe o
+  campo em branco pra pular essa parte e ver o diagnóstico geral do
+  watchlist inteiro.
+
+A análise por moeda também traz uma seção **"Última entrada e próximo
+ponto de interesse"**: a última virada de estrutura confirmada no 4h (o
+pivô — fundo ou topo — que deu início ao movimento atual, com data/hora) e
+o nível técnico mais próximo do preço atual que ainda não foi tocado
+(fibonacci, EMA de 4h, ou o suporte/resistência anterior à perna atual) —
+se o preço chegar perto desse nível, é um fator a mais de confluência.
+Isso é calculado na hora a partir dos candles que o bot já busca, sem
+precisar guardar histórico entre execuções (cada rodada do GitHub Actions
+começa do zero).
 
 Importante: essa análise por moeda é uma leitura automática baseada nas
 mesmas regras dos sinais — o script não chama nenhum modelo de IA pra gerar

@@ -490,6 +490,28 @@ def compute_ema(closes, period=EMA_TREND_PERIOD):
     return ema
 
 
+def fmt_price(x):
+    """
+    Formata preço com 4 dígitos significativos como o resto do bot já fazia
+    (":.4g"), mas sem cair em notação científica pra moedas de preço alto
+    (o ".4g" puro vira "7.751e+04" pra qualquer coisa acima de ~10 mil, o
+    que é exatamente o preço do BTC — ficava ilegível nas mensagens). Preço
+    alto usa separador de milhar com 2 casas; preço baixo (moedas menores)
+    mantém decimais suficientes sem notação científica.
+    """
+    try:
+        x = float(x)
+    except (TypeError, ValueError):
+        return str(x)
+    texto = f"{x:.4g}"
+    if "e" in texto or "E" in texto:
+        if abs(x) >= 1:
+            texto = f"{x:,.2f}"
+        else:
+            texto = f"{x:.8f}".rstrip("0").rstrip(".")
+    return texto
+
+
 def volume_status(candles, lookback=VOLUME_LOOKBACK):
     if len(candles) < lookback + 1:
         return None, None, None
@@ -658,12 +680,12 @@ def check_pullback(symbol, candles):
         targets = [leg["end_price"], leg["end_price"] - 0.272 * leg_size, leg["end_price"] - 0.618 * leg_size]
         estrutura_txt = "topos descendentes"
 
-    leg_txt = f"{leg['start_price']:.4g} → {leg['end_price']:.4g}"
+    leg_txt = f"{fmt_price(leg['start_price'])} → {fmt_price(leg['end_price'])}"
     detalhes = [
-        f"Preço agora: {price_now:.4g}",
-        f"Zona Fibonacci 0.382: {fib_price:.4g}",
-        f"Stop sugerido: {stop:.4g}",
-        f"Alvos: {' > '.join(f'{t:.4g}' for t in targets)}",
+        f"Preço agora: {fmt_price(price_now)}",
+        f"Zona Fibonacci 0.382: {fmt_price(fib_price)}",
+        f"Stop sugerido: {fmt_price(stop)}",
+        f"Alvos: {' > '.join(fmt_price(t) for t in targets)}",
     ]
     aviso = None
     if vol_ratio is not None and vol_ratio < 1.0:
@@ -677,7 +699,7 @@ def check_pullback(symbol, candles):
     ]
     if ema is not None:
         segurando = price_now >= ema if leg["direction"] == "alta" else price_now <= ema
-        checklist.append((f"Preço {'acima' if leg['direction'] == 'alta' else 'abaixo'} da EMA{EMA_TREND_PERIOD} ({ema:.4g})", segurando))
+        checklist.append((f"Preço {'acima' if leg['direction'] == 'alta' else 'abaixo'} da EMA{EMA_TREND_PERIOD} ({fmt_price(ema)})", segurando))
 
     return {
         "symbol": symbol, "estilo": "SWING", "acao": acao,
@@ -717,14 +739,14 @@ def check_exhaustion_climax(symbol, candles):
     price_now = candles[-1]["close"]
     pivot_highs, pivot_lows = find_pivots(candles, PIVOT_LEN)
     detalhes = [
-        f"Preço agora: {price_now:.4g}",
+        f"Preço agora: {fmt_price(price_now)}",
         f"RSI ({INTERVAL}): {rsi:.1f}",
         f"Volume: {vol_ratio:.1f}x a média",
     ]
     if acao == "VENDER" and pivot_lows:
-        detalhes.append(f"Alvo técnico: {pivot_lows[-1][1]:.4g} (último fundo relevante no {INTERVAL})")
+        detalhes.append(f"Alvo técnico: {fmt_price(pivot_lows[-1][1])} (último fundo relevante no {INTERVAL})")
     elif acao == "COMPRAR" and pivot_highs:
-        detalhes.append(f"Alvo técnico: {pivot_highs[-1][1]:.4g} (último topo relevante no {INTERVAL})")
+        detalhes.append(f"Alvo técnico: {fmt_price(pivot_highs[-1][1])} (último topo relevante no {INTERVAL})")
 
     checklist = [
         (f"RSI esticado ({rsi:.1f})", True),
@@ -766,13 +788,13 @@ def check_scalp_cascade(symbol, candles_15m, candles_1h):
     price_now = candles_15m[-1]["close"]
     pivot_highs_1h, pivot_lows_1h = find_pivots(candles_1h, PIVOT_LEN)
     detalhes = [
-        f"Preço agora: {price_now:.4g}",
+        f"Preço agora: {fmt_price(price_now)}",
         f"RSI 15m: {rsi_15m:.1f}  |  RSI 1h: {rsi_1h:.1f}",
     ]
     if acao == "VENDER" and pivot_lows_1h:
-        detalhes.append(f"Alvo técnico: {pivot_lows_1h[-1][1]:.4g} (último fundo no 1h)")
+        detalhes.append(f"Alvo técnico: {fmt_price(pivot_lows_1h[-1][1])} (último fundo no 1h)")
     elif acao == "COMPRAR" and pivot_highs_1h:
-        detalhes.append(f"Alvo técnico: {pivot_highs_1h[-1][1]:.4g} (último topo no 1h)")
+        detalhes.append(f"Alvo técnico: {fmt_price(pivot_highs_1h[-1][1])} (último topo no 1h)")
 
     checklist = [
         (f"RSI 15m em {lado} ({rsi_15m:.1f})", True),
@@ -831,10 +853,10 @@ def check_bottom_fishing(symbol, candles_d, candles_w, tier=None):
     entry_low, entry_high = min(prices), max(price_now, max(prices))
 
     detalhes = [
-        f"Preço agora: {price_now:.4g}",
-        f"Máxima histórica: {ath:.4g}  ({drawdown * 100:.0f}% abaixo)",
-        f"Zona de entrada sugerida: {entry_low:.4g} – {entry_high:.4g}",
-        f"Stop sugerido: {stop:.4g}",
+        f"Preço agora: {fmt_price(price_now)}",
+        f"Máxima histórica: {fmt_price(ath)}  ({drawdown * 100:.0f}% abaixo)",
+        f"Zona de entrada sugerida: {fmt_price(entry_low)} – {fmt_price(entry_high)}",
+        f"Stop sugerido: {fmt_price(stop)}",
     ]
     if tier:
         detalhes.append(f"Porte (por volume): {tier}")
@@ -909,10 +931,10 @@ def check_light_reversal(symbol, candles_d, tier=None):
     entry_low, entry_high = min(prices), max(price_now, max(prices))
 
     detalhes = [
-        f"Preço agora: {price_now:.4g}",
-        f"Topo dos últimos {lookback}d: {swing_high_price:.4g}  ({drawdown * 100:.0f}% abaixo)",
-        f"Zona de entrada sugerida: {entry_low:.4g} – {entry_high:.4g}",
-        f"Stop sugerido: {stop:.4g}",
+        f"Preço agora: {fmt_price(price_now)}",
+        f"Topo dos últimos {lookback}d: {fmt_price(swing_high_price)}  ({drawdown * 100:.0f}% abaixo)",
+        f"Zona de entrada sugerida: {fmt_price(entry_low)} – {fmt_price(entry_high)}",
+        f"Stop sugerido: {fmt_price(stop)}",
     ]
     if tier:
         detalhes.append(f"Porte (por volume): {tier}")
@@ -1059,10 +1081,10 @@ def check_failed_breakout_reversal(symbol, candles):
                     "titulo": "Reversão por rompimento falho (suporte)",
                     "timeframe": INTERVAL,
                     "detalhes": [
-                        f"Preço agora: {price_now:.4g}",
-                        f"Suporte rompido e recuperado: {ref_price:.4g}",
-                        f"Alvo técnico (movimento medido): {alvo:.4g}",
-                        f"Stop sugerido: {stop:.4g}",
+                        f"Preço agora: {fmt_price(price_now)}",
+                        f"Suporte rompido e recuperado: {fmt_price(ref_price)}",
+                        f"Alvo técnico (movimento medido): {fmt_price(alvo)}",
+                        f"Stop sugerido: {fmt_price(stop)}",
                     ],
                     "checklist": [
                         ("Suporte relevante identificado por pivô", True),
@@ -1071,7 +1093,7 @@ def check_failed_breakout_reversal(symbol, candles):
                         (f"Volume forte no rompimento/recuperação (≥{FAILED_BREAK_VOLUME_RATIO}x)", True),
                     ],
                     "explicacao": (
-                        f"O preço rompeu o suporte em {ref_price:.4g} mas não teve "
+                        f"O preço rompeu o suporte em {fmt_price(ref_price)} mas não teve "
                         f"continuidade de queda — já recuperou de volta pra cima do "
                         f"nível com volume acima da média. Rompimento sem seguimento "
                         f"tende a invalidar o movimento de baixa e favorecer uma "
@@ -1099,10 +1121,10 @@ def check_failed_breakout_reversal(symbol, candles):
                     "titulo": "Reversão por rompimento falho (resistência)",
                     "timeframe": INTERVAL,
                     "detalhes": [
-                        f"Preço agora: {price_now:.4g}",
-                        f"Resistência rompida e devolvida: {ref_price:.4g}",
-                        f"Alvo técnico (movimento medido): {alvo:.4g}",
-                        f"Stop sugerido: {stop:.4g}",
+                        f"Preço agora: {fmt_price(price_now)}",
+                        f"Resistência rompida e devolvida: {fmt_price(ref_price)}",
+                        f"Alvo técnico (movimento medido): {fmt_price(alvo)}",
+                        f"Stop sugerido: {fmt_price(stop)}",
                     ],
                     "checklist": [
                         ("Resistência relevante identificada por pivô", True),
@@ -1111,7 +1133,7 @@ def check_failed_breakout_reversal(symbol, candles):
                         (f"Volume forte no rompimento/devolução (≥{FAILED_BREAK_VOLUME_RATIO}x)", True),
                     ],
                     "explicacao": (
-                        f"O preço rompeu a resistência em {ref_price:.4g} mas não teve "
+                        f"O preço rompeu a resistência em {fmt_price(ref_price)} mas não teve "
                         f"continuidade de alta — já devolveu pra dentro do nível com "
                         f"volume acima da média. Rompimento sem seguimento tende a "
                         f"invalidar o movimento de alta e favorecer uma reversão de "
@@ -1233,11 +1255,11 @@ def check_range_market(symbol, candles):
         "titulo": "Mercado em consolidação — operação de range",
         "timeframe": INTERVAL,
         "detalhes": [
-            f"Preço agora: {price_now:.4g} ({lado_txt})",
-            f"Range dos últimos {RANGE_LOOKBACK} candles: {range_low:.4g} – {range_high:.4g} "
+            f"Preço agora: {fmt_price(price_now)} ({lado_txt})",
+            f"Range dos últimos {RANGE_LOOKBACK} candles: {fmt_price(range_low)} – {fmt_price(range_high)} "
             f"({range_pct * 100:.1f}% de amplitude)",
-            f"Alvo (borda oposta do range): {alvo:.4g}",
-            f"Stop sugerido: {stop:.4g}",
+            f"Alvo (borda oposta do range): {fmt_price(alvo)}",
+            f"Stop sugerido: {fmt_price(stop)}",
         ],
         "checklist": checklist,
         "explicacao": (
@@ -1319,24 +1341,24 @@ def _confluence_fatores(candles_4h, candles_15m, candles_1h, candles_5m=None):
     for level in CONFLUENCE_FIB_LEVELS:
         fib_price = fib_level_price(leg, level)
         if price_in_fib_zone(price_now, fib_price, CONFLUENCE_FIB_TOLERANCE):
-            fatores.append(f"Preço na zona de Fibonacci {level} da perna de 4h ({fib_price:.4g})")
+            fatores.append(f"Preço na zona de Fibonacci {level} da perna de 4h ({fmt_price(fib_price)})")
             break  # um nível já basta como fator — não soma os 3 juntos
 
     for periodo, ema, dist in _ema_hits([c["close"] for c in candles_4h], price_now):
-        fatores.append(f"Preço a {abs(dist) * 100:.1f}% da EMA{periodo} no 4h ({ema:.4g})")
+        fatores.append(f"Preço a {abs(dist) * 100:.1f}% da EMA{periodo} no 4h ({fmt_price(ema)})")
 
     for periodo, ema, dist in _ema_hits([c["close"] for c in candles_15m], price_15m):
-        fatores.append(f"Preço a {abs(dist) * 100:.1f}% da EMA{periodo} no 15m ({ema:.4g})")
+        fatores.append(f"Preço a {abs(dist) * 100:.1f}% da EMA{periodo} no 15m ({fmt_price(ema)})")
 
     nivel_4h = _recent_level_hit(candles_4h, price_now, leg["direction"])
     if nivel_4h is not None:
         rotulo = "suporte" if leg["direction"] == "alta" else "resistência"
-        fatores.append(f"Preço perto do {rotulo} dos últimos {CONFLUENCE_RECENT_LOOKBACK} candles no 4h ({nivel_4h:.4g})")
+        fatores.append(f"Preço perto do {rotulo} dos últimos {CONFLUENCE_RECENT_LOOKBACK} candles no 4h ({fmt_price(nivel_4h)})")
 
     nivel_1h = _recent_level_hit(candles_1h, price_1h, leg["direction"])
     if nivel_1h is not None:
         rotulo = "suporte" if leg["direction"] == "alta" else "resistência"
-        fatores.append(f"Preço perto do {rotulo} dos últimos {CONFLUENCE_RECENT_LOOKBACK} candles no 1h ({nivel_1h:.4g})")
+        fatores.append(f"Preço perto do {rotulo} dos últimos {CONFLUENCE_RECENT_LOOKBACK} candles no 1h ({fmt_price(nivel_1h)})")
 
     if leg["direction"] == "alta":
         if rsi_15m is not None and rsi_15m <= CONFLUENCE_RSI_OVERSOLD:
@@ -1389,12 +1411,12 @@ def check_confluence(symbol, candles_4h, candles_15m, candles_1h, candles_5m=Non
     alvo = leg["end_price"]
 
     detalhes = [
-        f"Preço agora (4h): {price_now:.4g}  |  Preço agora (15m): {price_15m:.4g}",
+        f"Preço agora (4h): {fmt_price(price_now)}  |  Preço agora (15m): {fmt_price(price_15m)}",
         f"Fatores alinhados ({len(fatores)}):",
     ]
     detalhes.extend(f"  • {f}" for f in fatores)
-    detalhes.append(f"Alvo técnico: {alvo:.4g} (último {'topo' if leg['direction'] == 'alta' else 'fundo'} da perna de 4h)")
-    detalhes.append(f"Stop sugerido: {stop:.4g}")
+    detalhes.append(f"Alvo técnico: {fmt_price(alvo)} (último {'topo' if leg['direction'] == 'alta' else 'fundo'} da perna de 4h)")
+    detalhes.append(f"Stop sugerido: {fmt_price(stop)}")
     detalhes.append(
         "Invalidação: rompimento do stop tende a acelerar em direção "
         + ("ao próximo suporte" if leg["direction"] == "alta" else "à próxima resistência")
@@ -1443,6 +1465,89 @@ def diagnose_confluence(candles_4h, candles_15m, candles_1h, candles_5m=None):
     }
 
 
+def _fmt_candle_time(candles, idx):
+    """Data/hora (UTC) de abertura de um candle, pra dar contexto de 'quando' num nível técnico."""
+    try:
+        ts = candles[idx]["open_time"] / 1000
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%d/%m %Hh UTC")
+    except Exception:
+        return "data desconhecida"
+
+
+def build_entry_outlook(candles_4h, candles_15m, candles_1h, candles_5m=None):
+    """
+    Contexto de "última entrada" e "próxima entrada possível" calculado na
+    hora, a partir dos candles que o bot já busca — sem precisar guardar
+    histórico entre execuções (cada rodada do GitHub Actions começa do
+    zero). "Última entrada" é a última virada de estrutura confirmada no
+    4h (o pivô que deu início à perna de impulso atual — em teoria, onde
+    uma entrada de swing teria feito sentido). "Próxima entrada possível" é
+    o nível técnico mais próximo do preço atual que ainda não foi tocado
+    (fibonacci, EMA de 4h, ou o suporte/resistência anterior à perna atual)
+    — se o preço chegar perto dele, some mais um fator de confluência ao
+    que já está alinhado agora.
+    """
+    if len(candles_4h) < (2 * PIVOT_LEN + 10):
+        return None
+    pivot_highs, pivot_lows = find_pivots(candles_4h, PIVOT_LEN)
+    leg = last_impulse_leg(pivot_highs, pivot_lows)
+    if leg is None:
+        return None
+
+    price_now = candles_4h[-1]["close"]
+    lado_ultima = "fundo" if leg["direction"] == "alta" else "topo"
+    linhas = [
+        f"Última virada de estrutura confirmada no 4h: {lado_ultima} em "
+        f"{fmt_price(leg['start_price'])} ({_fmt_candle_time(candles_4h, leg['start_idx'])}) — "
+        f"foi dali que partiu o movimento até "
+        f"{fmt_price(leg['end_price'])} ({_fmt_candle_time(candles_4h, leg['end_idx'])})."
+    ]
+
+    dados = _confluence_fatores(candles_4h, candles_15m, candles_1h, candles_5m)
+    fatores_atuais = dados["fatores"] if dados else []
+
+    candidatos = []
+    for level in CONFLUENCE_FIB_LEVELS:
+        fib_price = fib_level_price(leg, level)
+        if not price_in_fib_zone(price_now, fib_price, CONFLUENCE_FIB_TOLERANCE):
+            candidatos.append((abs(price_now - fib_price), f"Fibonacci {level} da perna atual", fib_price))
+    for periodo in CONFLUENCE_EMA_PERIODS:
+        ema = compute_ema([c["close"] for c in candles_4h], periodo)
+        if ema is not None and ema > 0:
+            dist = abs(price_now - ema) / ema
+            if dist > CONFLUENCE_EMA_TOLERANCE:
+                candidatos.append((abs(price_now - ema), f"EMA{periodo} no 4h", ema))
+    pivots_mesmo_lado = pivot_lows if leg["direction"] == "alta" else pivot_highs
+    anteriores = [p for p in pivots_mesmo_lado if p[0] < leg["start_idx"]]
+    if anteriores:
+        idx_prev, preco_prev = anteriores[-1]
+        rotulo_prev = "suporte" if leg["direction"] == "alta" else "resistência"
+        candidatos.append((
+            abs(price_now - preco_prev),
+            f"{rotulo_prev} anterior, de {_fmt_candle_time(candles_4h, idx_prev)}",
+            preco_prev,
+        ))
+
+    if candidatos:
+        candidatos.sort(key=lambda t: t[0])
+        _, rotulo, nivel = candidatos[0]
+        n_extra = len(fatores_atuais) + 1
+        direcao_txt = "acima" if nivel > price_now else "abaixo"
+        linhas.append(
+            f"Próximo ponto de interesse: {rotulo} em {fmt_price(nivel)} ({direcao_txt} do "
+            f"preço atual, {fmt_price(price_now)}). Chegando perto disso, some aos "
+            f"{len(fatores_atuais)} fator(es) já alinhado(s) agora e passaria a {n_extra} — "
+            f"mais perto de virar confluência de verdade."
+        )
+    else:
+        linhas.append(
+            "Não achei um próximo nível técnico relevante fora da tolerância atual — os "
+            "níveis principais (fibonacci/EMA) já estão todos perto do preço agora."
+        )
+
+    return "\n".join(linhas)
+
+
 # ----------------------------------------------------------------------------
 # DIAGNÓSTICO DE PROXIMIDADE (near-miss) — sob demanda, execução manual
 #
@@ -1472,7 +1577,7 @@ def diagnose_pullback(candles):
         "tipo": "Pullback",
         "score": dist_pct / PULLBACK_DIAG_MAX_PCT,
         "texto": (f"Pullback ({lado}): preço a {dist_pct * 100:.1f}% da zona Fibonacci "
-                  f"0.382 ({fib_price:.4g}) — {estrutura_txt}."),
+                  f"0.382 ({fmt_price(fib_price)}) — {estrutura_txt}."),
     }
 
 
@@ -1606,7 +1711,7 @@ def diagnose_failed_break(candles):
                 return {
                     "tipo": "Rompimento falho (suporte)",
                     "score": 0.3,
-                    "texto": f"Rompeu o suporte em {ref_price:.4g} mas falta confirmar: {', '.join(faltando)}.",
+                    "texto": f"Rompeu o suporte em {fmt_price(ref_price)} mas falta confirmar: {', '.join(faltando)}.",
                 }
     if pivot_highs:
         ref_idx, ref_price = pivot_highs[-1]
@@ -1622,7 +1727,7 @@ def diagnose_failed_break(candles):
                 return {
                     "tipo": "Rompimento falho (resistência)",
                     "score": 0.3,
-                    "texto": f"Rompeu a resistência em {ref_price:.4g} mas falta confirmar: {', '.join(faltando)}.",
+                    "texto": f"Rompeu a resistência em {fmt_price(ref_price)} mas falta confirmar: {', '.join(faltando)}.",
                 }
     return None
 
@@ -1645,7 +1750,7 @@ def diagnose_range_market(candles):
             "tipo": "Mercado em consolidação",
             "score": 0.5,
             "texto": (f"Mercado parado ({range_pct * 100:.1f}% de amplitude, "
-                      f"{range_low:.4g}-{range_high:.4g}) — no meio do range, "
+                      f"{fmt_price(range_low)}-{fmt_price(range_high)}) — no meio do range, "
                       f"aguardando aproximar de uma borda pra ter entrada."),
         }
     return None  # já perto de uma borda: isso já teria virado sinal de verdade lá em cima
@@ -1720,7 +1825,7 @@ def build_symbol_deep_dive(symbol_input):
 
     price_now = candles_4h[-1]["close"]
     linhas = [f"🧭 VELA MONITOR — ANÁLISE — {symbol.replace('USDT', '/USDT')}", "",
-              f"Preço agora: {price_now:.4g}"]
+              f"Preço agora: {fmt_price(price_now)}"]
 
     sinais_ativos = []
     for fn in (check_pullback, check_exhaustion_climax, check_failed_breakout_reversal, check_range_market):
@@ -1816,6 +1921,15 @@ def build_symbol_deep_dive(symbol_input):
     if contexto_txt:
         linhas.append("")
         linhas.append(f"Contexto: {contexto_txt}")
+
+    try:
+        outlook_txt = build_entry_outlook(candles_4h, candles_15m, candles_1h, candles_5m)
+    except Exception:
+        outlook_txt = None
+    if outlook_txt:
+        linhas.append("")
+        linhas.append("📍 Última entrada e próximo ponto de interesse:")
+        linhas.append(outlook_txt)
 
     linhas.append("")
     linhas.append(
@@ -2215,76 +2329,76 @@ def build_bull_bear_scenario(symbol, candles_d):
         # nivel = último topo confirmado dessa perna de alta
         longe = False
         if dist_pct > 0.02:
-            situacao = (f"o preço já rompeu o topo anterior ({nivel:.4g}) e está em "
-                        f"{price_now:.4g} ({dist_pct * 100:+.1f}% acima dele)")
+            situacao = (f"o preço já rompeu o topo anterior ({fmt_price(nivel)}) e está em "
+                        f"{fmt_price(price_now)} ({dist_pct * 100:+.1f}% acima dele)")
         elif dist_pct < -0.10:
             longe = True
-            situacao = (f"o preço já caiu bem abaixo do topo anterior ({nivel:.4g}), "
-                        f"pra {price_now:.4g} ({dist_pct * 100:+.1f}%) — esse nível está "
+            situacao = (f"o preço já caiu bem abaixo do topo anterior ({fmt_price(nivel)}), "
+                        f"pra {fmt_price(price_now)} ({dist_pct * 100:+.1f}%) — esse nível está "
                         f"meio distante agora, serve mais de referência do que de zona "
                         f"imediata de entrada")
         else:
-            situacao = f"o preço está perto do topo anterior ({nivel:.4g}), em {price_now:.4g}"
+            situacao = f"o preço está perto do topo anterior ({fmt_price(nivel)}), em {fmt_price(price_now)}"
 
         short_low, short_high = nivel * 0.995, nivel * 1.01
         entrada_txt = (
-            f"se o preço voltar a se aproximar dessa região, entre {short_low:.4g} e "
-            f"{short_high:.4g}" if longe else
-            f"dá pra especular um short entre {short_low:.4g} e {short_high:.4g} (perto desse topo)"
+            f"se o preço voltar a se aproximar dessa região, entre {fmt_price(short_low)} e "
+            f"{fmt_price(short_high)}" if longe else
+            f"dá pra especular um short entre {fmt_price(short_low)} e {fmt_price(short_high)} (perto desse topo)"
         )
         bear = (
             f"🔴 Pensando em VENDER: {situacao}. Enquanto não vier rompimento de "
             f"verdade com volume forte, {entrada_txt}, stop acima "
-            f"dele, mirando a zona de Fibonacci 0.382 dessa perna ({fib_price:.4g}) "
+            f"dele, mirando a zona de Fibonacci 0.382 dessa perna ({fmt_price(fib_price)}) "
             f"como primeiro alvo — principalmente porque {vol_txt}, o que "
             f"enfraquece a chance de continuidade da alta e favorece um topo "
             f"descendente."
         )
         bull = (
             f"🟢 Pensando em COMPRAR: o cenário de alta só fica confirmado de "
-            f"verdade com rompimento e sustentação acima de {nivel:.4g} com "
+            f"verdade com rompimento e sustentação acima de {fmt_price(nivel)} com "
             f"volume forte. Nesse caso o setup mais saudável não é comprar o "
             f"rompimento na hora — é esperar o pullback seguinte formar um fundo "
             f"ascendente (mais alto que o anterior) antes de entrar, de olho na "
-            f"região perto de {fib_price:.4g} (fib 0.382 da perna atual) como "
+            f"região perto de {fmt_price(fib_price)} (fib 0.382 da perna atual) como "
             f"referência de onde esse próximo fundo tende a aparecer."
         )
     else:
         # nivel = último fundo confirmado dessa perna de baixa
         longe = False
         if dist_pct < -0.02:
-            situacao = (f"o preço já rompeu o fundo anterior ({nivel:.4g}) e está em "
-                        f"{price_now:.4g} ({dist_pct * 100:+.1f}% abaixo dele)")
+            situacao = (f"o preço já rompeu o fundo anterior ({fmt_price(nivel)}) e está em "
+                        f"{fmt_price(price_now)} ({dist_pct * 100:+.1f}% abaixo dele)")
         elif dist_pct > 0.10:
             longe = True
-            situacao = (f"o preço já subiu bem acima do fundo anterior ({nivel:.4g}), "
-                        f"pra {price_now:.4g} ({dist_pct * 100:+.1f}%) — esse nível está "
+            situacao = (f"o preço já subiu bem acima do fundo anterior ({fmt_price(nivel)}), "
+                        f"pra {fmt_price(price_now)} ({dist_pct * 100:+.1f}%) — esse nível está "
                         f"meio distante agora, serve mais de referência do que de zona "
                         f"imediata de entrada")
         else:
-            situacao = f"o preço está perto do fundo anterior ({nivel:.4g}), em {price_now:.4g}"
+            situacao = f"o preço está perto do fundo anterior ({fmt_price(nivel)}), em {fmt_price(price_now)}"
 
         long_low, long_high = nivel * 0.99, nivel * 1.005
         entrada_txt = (
-            f"se o preço voltar a se aproximar dessa região, entre {long_low:.4g} e "
-            f"{long_high:.4g}" if longe else
-            f"dá pra especular uma compra entre {long_low:.4g} e {long_high:.4g} (perto desse fundo)"
+            f"se o preço voltar a se aproximar dessa região, entre {fmt_price(long_low)} e "
+            f"{fmt_price(long_high)}" if longe else
+            f"dá pra especular uma compra entre {fmt_price(long_low)} e {fmt_price(long_high)} (perto desse fundo)"
         )
         bull = (
             f"🟢 Pensando em COMPRAR: {situacao}. Enquanto não vier rompimento de "
             f"baixa de verdade com volume forte, {entrada_txt}, stop abaixo "
-            f"dele, mirando a zona de Fibonacci 0.382 dessa perna ({fib_price:.4g}) "
+            f"dele, mirando a zona de Fibonacci 0.382 dessa perna ({fmt_price(fib_price)}) "
             f"como primeiro alvo — principalmente porque {vol_txt}, o que "
             f"enfraquece a chance de continuidade da queda e favorece um fundo "
             f"ascendente."
         )
         bear = (
             f"🔴 Pensando em VENDER: o cenário de baixa só fica confirmado de "
-            f"verdade com rompimento e sustentação abaixo de {nivel:.4g} com "
+            f"verdade com rompimento e sustentação abaixo de {fmt_price(nivel)} com "
             f"volume forte. Nesse caso o setup mais saudável não é vender o "
             f"rompimento na hora — é esperar o pullback seguinte formar um topo "
             f"descendente (mais baixo que o anterior) antes de entrar, de olho na "
-            f"região perto de {fib_price:.4g} (fib 0.382 da perna atual) como "
+            f"região perto de {fmt_price(fib_price)} (fib 0.382 da perna atual) como "
             f"referência de onde esse próximo topo tende a aparecer."
         )
 
@@ -2318,7 +2432,7 @@ def _build_btc_eth_lines(sinais_por_moeda, candles_d_extra):
             candles_d = candles_d_extra.get(symbol)
             cenario = build_bull_bear_scenario(symbol, candles_d) if candles_d else None
             if cenario:
-                linhas.append(f"• {nome}: SEM SWING ATIVO agora (preço {cenario['price_now']:.4g}). Dois cenários:")
+                linhas.append(f"• {nome}: SEM SWING ATIVO agora (preço {fmt_price(cenario['price_now'])}). Dois cenários:")
                 linhas.append(f"  {cenario['bull']}")
                 linhas.append(f"  {cenario['bear']}")
             else:
@@ -2376,7 +2490,7 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
             candles_d = candles_d_extra.get(symbol)
             cenario = build_bull_bear_scenario(symbol, candles_d) if candles_d else None
             if cenario:
-                bloco.append(f"Cenário de swing (preço {cenario['price_now']:.4g}):")
+                bloco.append(f"Cenário de swing (preço {fmt_price(cenario['price_now'])}):")
                 bloco.append(f"  {cenario['bull']}")
                 bloco.append(f"  {cenario['bear']}")
             if not diags and not cenario:
@@ -2488,6 +2602,7 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
 
 def main():
     is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+    symbol_query = os.environ.get("SYMBOL_QUERY", "").strip()
     agora = datetime.now(timezone.utc)
     agora_min = agora.hour * 60 + agora.minute
     is_report_time = (not is_manual) and any(
@@ -2496,10 +2611,13 @@ def main():
     )
     # A varredura pesada no watchlist inteiro (50 moedas x ~5 chamadas cada —
     # o que estava deixando toda rodada demorada) só roda nos horários do
-    # relatório categorizado ou numa execução manual. Nas rodadas normais de
-    # hora em hora, por enquanto, o bot analisa só CORE_SYMBOLS (BTC e ETH)
-    # — bem mais rápido, e é isso que você está acompanhando de perto agora.
-    do_full_scan = is_manual or is_report_time
+    # relatório categorizado, ou numa execução manual SEM moeda específica
+    # pedida (aí faz sentido ver o diagnóstico de todo o watchlist). Se você
+    # roda manual só pra perguntar de uma moeda (campo "symbol" preenchido),
+    # pula a varredura pesada — vai direto pra análise daquela moeda, bem
+    # mais rápido. Nas rodadas normais de hora em hora, o bot analisa só
+    # CORE_SYMBOLS (BTC e ETH).
+    do_full_scan = is_report_time or (is_manual and not symbol_query)
 
     watchlist, tiers = [], {}
     sinais_por_moeda = {}
@@ -2622,15 +2740,15 @@ def main():
             print(f"  erro montando o relatório categorizado ({e})")
 
     if is_manual:
-        print(f"[{datetime.now(timezone.utc).isoformat()}] Montando diagnóstico de proximidade...")
-        try:
-            diag_msg = build_diagnostic_message(todos_diagnosticos)
-            ok = send_telegram_message(diag_msg)
-            print("  -> diagnóstico enviado" if ok else "  -> FALHOU ao enviar o diagnóstico")
-        except Exception as e:
-            print(f"  erro montando o diagnóstico ({e})")
+        if do_full_scan:
+            print(f"[{datetime.now(timezone.utc).isoformat()}] Montando diagnóstico de proximidade...")
+            try:
+                diag_msg = build_diagnostic_message(todos_diagnosticos)
+                ok = send_telegram_message(diag_msg)
+                print("  -> diagnóstico enviado" if ok else "  -> FALHOU ao enviar o diagnóstico")
+            except Exception as e:
+                print(f"  erro montando o diagnóstico ({e})")
 
-        symbol_query = os.environ.get("SYMBOL_QUERY", "").strip()
         if symbol_query:
             print(f"[{datetime.now(timezone.utc).isoformat()}] Analisando moeda pedida: {symbol_query}")
             try:
