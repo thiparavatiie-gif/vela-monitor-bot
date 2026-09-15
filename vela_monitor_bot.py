@@ -12,18 +12,22 @@
 #      <=15) junto com volume muito acima da média no 4h: costuma marcar
 #      topo ou fundo de um movimento.
 #
-#   3) PRIMEIRO TOQUE DE RSI EM ZONA DE EXTREMO (5m = day trade, 1h = swing)
-#      — o "cardápio de trade" do Diego: dois sinais SEPARADOS (não uma
-#      condição conjunta), cada um disparando só no PRIMEIRO toque do RSI
-#      na zona de extremo (o RSI cruzou pra dentro da zona nesta vela, não
-#      estava lá na vela anterior — assim não repete o mesmo aviso vela
-#      após vela enquanto o RSI continua esticado). Primeiro toque no 5m
-#      depois de um movimento forte = janela rápida de repique/correção
-#      (day trade). Primeiro toque no 1h = ponto de entrada de SWING,
-#      porque tende a coincidir com o diário formando uma base de preço
-#      quando os tempos gráficos maiores estão alinhados na mesma direção
-#      (o Diego comenta que deixa um alarme de RSI em ~31 configurado no 1h
-#      justamente pra pegar esse momento).
+#   3) PRIMEIRO TOQUE DE RSI EM ZONA DE EXTREMO (5m = day trade, 1h = swing,
+#      4h = setup raro de alta convicção) — o "cardápio de trade" do Diego:
+#      TRÊS sinais SEPARADOS (não uma condição conjunta), cada um disparando
+#      só no PRIMEIRO toque do RSI na zona de extremo (o RSI cruzou pra
+#      dentro da zona nesta vela, não estava lá na vela anterior — assim não
+#      repete o mesmo aviso vela após vela enquanto o RSI continua
+#      esticado). Primeiro toque no 5m depois de um movimento forte = janela
+#      rápida de repique/correção (day trade). Primeiro toque no 1h = ponto
+#      de entrada de SWING, porque tende a coincidir com o diário formando
+#      uma base de preço quando os tempos gráficos maiores estão alinhados
+#      na mesma direção (o Diego comenta que deixa um alarme de RSI em ~31
+#      configurado no 1h justamente pra pegar esse momento). Primeiro toque
+#      no 4h (`check_scalp_4h`) é o mais raro dos três — o RSI de um tempo
+#      gráfico tão largo só chega nesses extremos depois de várias semanas
+#      de movimento — por isso é tratado como o setup de MAIOR convicção do
+#      cardápio, mesmo ainda exigindo stop como qualquer outro sinal.
 #
 #   4) BOTTOM FISHING (posição) — moeda muito abaixo (55%+) da própria máxima
 #      HISTÓRICA e formando fundos ascendentes no diário, indicando possível
@@ -128,7 +132,13 @@
 #  operação enviada" com: quando foi, os valores (entrada/stop/alvo), há
 #  quanto tempo, e como o preço andou desde então (inclusive se já passou do
 #  stop ou do alvo) — ver `atualiza_memoria_ultima_operacao`,
-#  `get_memoria_pinned` e `_ultima_operacao_texto`.
+#  `get_memoria_pinned` e `_ultima_operacao_texto`. Quando a operação ainda
+#  está aberta (não passou nem do stop nem do alvo) e o preço já andou pelo
+#  menos 1x a distância entrada→stop (1R) a favor, esse mesmo bloco soma uma
+#  sugestão de mover o stop pra zero a zero (o preço de entrada) — trava o
+#  risco em zero sem precisar sair da operação, ideia comentada nas lives
+#  como forma de proteger o lucro já formado sem abrir mão do resto do
+#  movimento (ver `BREAKEVEN_STOP_R_MULT`).
 #
 #  RESTRIÇÃO TEMPORÁRIA (SOMENTE_CORE_SYMBOLS, ligada por padrão): por
 #  pedido, o bot não analisa nem manda mensagem de NENHUMA moeda fora de
@@ -277,6 +287,13 @@ SCALP_5M_RSI_OVERSOLD = SCALP_RSI_OVERSOLD
 SCALP_5M_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT
 SCALP_1H_RSI_OVERSOLD = 31     # o Diego comenta um alarme de RSI ~31 no 1h
 SCALP_1H_RSI_OVERBOUGHT = 69
+SCALP_4H_RSI_OVERSOLD = SCALP_RSI_OVERSOLD    # mesmo limiar clássico 30/70,
+SCALP_4H_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT  # mas no 4h isso é bem mais raro
+
+# --- Sugestão de mover o stop pra zero a zero (memória da última operação) ---
+# múltiplo de R (distância entrada→stop) que o preço precisa andar a favor,
+# ainda com a operação aberta, pra memória sugerir travar o risco no zero a zero
+BREAKEVEN_STOP_R_MULT = 1.0
 
 # --- Bottom fishing (posição) — drawdown profundo desde a máxima histórica ---
 BOTTOM_FISHING_MIN_DRAWDOWN = 0.55   # pelo menos 55% abaixo da máxima histórica
@@ -1333,6 +1350,23 @@ def check_scalp_1h(symbol, candles_1h):
     )
 
 
+def check_scalp_4h(symbol, candles_4h):
+    return _build_scalp_touch_signal(
+        symbol, candles_4h, SCALP_4H_RSI_OVERSOLD, SCALP_4H_RSI_OVERBOUGHT, "4h",
+        estilo="SWING", titulo_sufixo="setup raro de alta convicção", stop_pct=0.03,
+        explicacao=lambda lado: (
+            f"Primeiro toque do RSI de 4 horas em {lado} — o Diego trata esse "
+            "extremo no tempo gráfico de 4h como o setup mais raro e de maior "
+            "convicção do 'cardápio de trade': ele aparece bem menos vezes que os "
+            "toques de 5m/1h, mas quando aparece costuma marcar um ponto de virada "
+            "de maior peso, porque leva várias semanas de movimento pra esticar o "
+            "RSI de um tempo gráfico tão largo até esses extremos."
+        ),
+        aviso="Sinal raro e de alta convicção, mas ainda assim exige stop — "
+              "nenhum setup é garantido.",
+    )
+
+
 # ----------------------------------------------------------------------------
 # SINAL 4 — BOTTOM FISHING (posição)
 # ----------------------------------------------------------------------------
@@ -2253,6 +2287,11 @@ def diagnose_scalp_1h(rsi_1h):
                                   "Primeiro toque 1h", "1h")
 
 
+def diagnose_scalp_4h(rsi_4h):
+    return _diagnose_scalp_touch(rsi_4h, SCALP_4H_RSI_OVERSOLD, SCALP_4H_RSI_OVERBOUGHT,
+                                  "Primeiro toque 4h (setup raro)", "4h")
+
+
 def diagnose_bottom_fishing(candles_d, candles_w):
     if len(candles_w) < 20 or len(candles_d) < 20:
         return None
@@ -2451,6 +2490,15 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         except Exception:
             pass
 
+    rsi_4h = None
+    try:
+        sig = check_scalp_4h(symbol, candles_4h)
+        if sig:
+            sinais_ativos.append(sig)
+    except Exception:
+        pass
+    rsi_4h = compute_rsi([c["close"] for c in candles_4h])
+
     rsi_5m = rsi_1h = None
     if candles_5m:
         try:
@@ -2494,6 +2542,7 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         diagnose_range_market(candles_4h),
         diagnose_scalp_5m(rsi_5m) if rsi_5m is not None else None,
         diagnose_scalp_1h(rsi_1h) if rsi_1h is not None else None,
+        diagnose_scalp_4h(rsi_4h) if rsi_4h is not None else None,
         diagnose_bottom_fishing(candles_d, candles_w) if (candles_d and candles_w) else None,
         diagnose_light_reversal(candles_d) if candles_d else None,
         diagnose_confluence(candles_4h, candles_15m, candles_1h, candles_5m) if (candles_15m and candles_1h) else None,
@@ -2966,6 +3015,15 @@ def _ultima_operacao_texto(info_anterior, price_now):
                 linhas.append("   ✅ O preço já passou do alvo dessa operação.")
             else:
                 linhas.append("   Ainda entre o stop e o alvo — operação segue em aberto.")
+                if stop is not None:
+                    risco_r = abs(entry - stop)
+                    movimento_favoravel = (price_now - entry) if acao == "COMPRAR" else (entry - price_now)
+                    if risco_r > 0 and movimento_favoravel >= risco_r * BREAKEVEN_STOP_R_MULT:
+                        linhas.append(
+                            f"   💡 O preço já andou pelo menos {BREAKEVEN_STOP_R_MULT:.0f}x a distância "
+                            f"entrada→stop a favor — dá pra considerar mover o stop pra {fmt_price(entry)} "
+                            "(zero a zero), travando a operação sem risco de prejuízo a partir daqui."
+                        )
 
     return "\n".join(linhas)
 
@@ -3025,6 +3083,18 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
                 diagnosticos.append({"symbol": symbol, **diag})
     except Exception as e:
         print(f"  {symbol}: erro no check de mercado em consolidação ({e})")
+
+    try:
+        sig = check_scalp_4h(symbol, candles_4h)
+        if sig:
+            sinais.append(sig)
+        else:
+            rsi_4h = compute_rsi([c["close"] for c in candles_4h])
+            diag = diagnose_scalp_4h(rsi_4h)
+            if diag:
+                diagnosticos.append({"symbol": symbol, **diag})
+    except Exception as e:
+        print(f"  {symbol}: erro no check de primeiro toque 4h ({e})")
 
     # cascata de RSI e confluência usam 15m/1h/5m — busca uma vez só e reaproveita
     try:

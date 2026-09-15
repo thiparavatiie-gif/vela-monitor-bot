@@ -268,11 +268,21 @@ moeda. Se ela for apagada, o bot simplesmente recomeça do zero (próxima
 operação vira a primeira registrada) — não trava nem dá erro, só perde o
 histórico anterior.
 
-## Cardápio de trade: sinais separados de 5m (day trade) e 1h (swing)
+### Sugestão de mover o stop pra zero a zero
+
+Esse mesmo bloco de memória agora também sugere proteger o lucro quando faz
+sentido: se a operação ainda está **em aberto** (não passou nem do stop nem
+do alvo) e o preço já andou pelo menos **1x a distância entrada→stop (1R)**
+a favor, aparece uma linha extra sugerindo mover o stop pra zero a zero (o
+preço de entrada) — trava o risco em zero sem precisar sair da operação e
+sem abrir mão do resto do movimento até o alvo. O limiar de 1R é o valor de
+`BREAKEVEN_STOP_R_MULT`, caso queira ajustar pra mais ou menos exigente.
+
+## Cardápio de trade: sinais separados de 5m (day trade), 1h (swing) e 4h (setup raro)
 
 O sinal de "Cascata de RSI" antigo exigia RSI de 15m **e** de 1h em zona de
 extremo ao mesmo tempo. Depois de revisar um vídeo do Diego sobre o
-"cardápio de trade" dele, isso virou **dois sinais independentes**, por
+"cardápio de trade" dele, isso virou **três sinais independentes**, por
 tempo gráfico, cada um disparando só no **primeiro toque** do RSI na zona
 de extremo (o RSI acabou de cruzar pra dentro da zona nesta vela — não
 estava lá na vela anterior). Isso evita repetir o mesmo aviso vela após
@@ -286,8 +296,15 @@ vela enquanto o RSI continua esticado no mesmo movimento:
   ponto de entrada de **swing**, porque tende a coincidir com o diário
   formando uma base de preço quando os tempos gráficos maiores estão
   alinhados na mesma direção.
+- **Primeiro toque no 4h** (`SCALP_4H_RSI_OVERSOLD`/`OVERBOUGHT`, 30/70,
+  `check_scalp_4h`) — o mais **raro** dos três: o RSI de um tempo gráfico
+  tão largo só chega nesses extremos depois de várias semanas de movimento.
+  Por isso, revendo as lives, esse é tratado como o setup de **maior
+  convicção** do cardápio — mesmo assim continua exigindo stop e passando
+  pelos mesmos filtros de qualidade que qualquer outro sinal (não é
+  garantia de acerto, só de raridade/peso maior quando aparece).
 
-Os dois passam pelos mesmos filtros de qualidade de todo sinal (risco/
+Os três passam pelos mesmos filtros de qualidade de todo sinal (risco/
 retorno mínimo de 1:2 e tendência majoritária do mercado).
 
 ## Tendência em 3 tempos gráficos (diário + semanal + mensal)

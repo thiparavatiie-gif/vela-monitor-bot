@@ -306,11 +306,14 @@ confiável), mas é o 3º padrão mais recorrente até agora.
 
 1. **RSI em sobrevenda/sobrecompra no 4h é o setup de maior convicção pra ele**
    — mencionado em 2 das 5 lives processadas até agora como o ponto de entrada
-   principal, mais raro e mais forte que o 1h/5m. O bot não tem essa versão em
-   4h ainda (só 5m e 1h). **Candidato mais maduro.**
+   principal, mais raro e mais forte que o 1h/5m. **✅ IMPLEMENTADO**
+   (`check_scalp_4h` / `diagnose_scalp_4h`, estilo SWING, stop 3%) —
+   15/09/2026.
 2. **Sugestão de mover stop pra zero a zero após movimento favorável relevante**
-   — apareceu em 2 lives (#1 e #4). O bot hoje só manda o stop inicial, não
-   tem nenhuma lógica de gestão pós-entrada. **2º candidato mais maduro.**
+   — apareceu em 2 lives (#1 e #4). **✅ IMPLEMENTADO** — extensão de
+   `_ultima_operacao_texto` na memória da última operação: quando a operação
+   ainda está aberta e o preço já andou 1R (`BREAKEVEN_STOP_R_MULT`) a favor,
+   sugere mover o stop pra entrada — 15/09/2026.
 3. **Reteste de nível rompido (resistência virada suporte e vice-versa)** —
    apareceu em 2 lives (#1 e #5). Ainda precisa de mais desenho técnico (como
    detectar "rompeu recentemente" de forma confiável) antes de virar sinal.
@@ -338,11 +341,11 @@ confiável), mas é o 3º padrão mais recorrente até agora.
   multi-mercado (ações americanas, Ibovespa, dólar, ouro, além de cripto).
 - Candidata seguinte (ainda não processada): "Trade Ao Vivo! Análise do
   Bitcoin, Altcoins e Mercado Internacional!" (ncl4n0dfK1Y, ~2 meses atrás).
-- Nada foi implementado no bot ainda a partir dessas notas — fica pra decidir
-  com o Thiago quando tiver um conjunto de candidatos maduro (repetido em mais
-  de uma live) ou quando ele pedir pra implementar algo específico daqui. Com
-  4 lives já processadas, os candidatos (1) e (2) já apareceram 2x cada, o que
-  é uma amostra razoável pra considerar implementar.
+- 15/09/2026: implementados os 2 candidatos mais maduros — (1) sinal 4h de
+  primeiro toque de RSI (`check_scalp_4h`) e (2) sugestão de stop zero a zero
+  na memória da última operação. Os candidatos (3) reteste de nível rompido e
+  (5) cruzar exaustão com os outros sinais de compra/venda seguem em aberto,
+  pra quando aparecerem em mais lives ou o Thiago pedir pra avançar com eles.
 - Observação de processo: as duas primeiras lives processadas eram
   basicamente a MESMA correção de BTC sendo acompanhada em dias seguidos — ou
   seja, lives vizinhas tendem a ser bem repetitivas entre si. Amostragem
