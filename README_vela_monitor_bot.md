@@ -123,6 +123,25 @@ Arquivos deste pacote:
   minutos: `*/15 * * * *`, lembrando que o GitHub Actions pode atrasar
   alguns minutos em horários de pico da plataforma).
 
+## Confluência multi-indicador (novo sinal)
+
+Além dos sinais já existentes, tem um novo tipo — **confluência
+multi-indicador** — pensado pro tipo de leitura manual que junta vários
+fatores ao mesmo tempo (ex.: "RSI em sobrevenda no 15m, perto da EMA200 no
+15m, e aproximando da EMA12 no 4h"). Em vez de cada indicador precisar
+disparar sozinho, esse sinal soma quantos dos fatores abaixo estão
+alinhados na mesma direção ao mesmo tempo:
+
+- Fibonacci 0.382, 0.5 **ou** 0.618 da última perna de 4h.
+- EMA 12, 21, 50 **ou** 200 — tanto no 4h quanto no 15m.
+- RSI em sobrevenda/sobrecompra no 15m e no 1h.
+
+Com 3 ou mais fatores alinhados, vira sinal de verdade ("Confluência
+multi-indicador — possível fundo ascendente/topo descendente se
+formando"); com 2, aparece como near-miss no status core e no diagnóstico
+manual. Isso deve pegar bem mais dos cenários "vários indicadores batendo
+ao mesmo tempo" que antes passavam batido.
+
 ## Mensagens mais diretas: checklist, alvo e sem duplicidade
 
 Cada alerta de sinal agora vem num formato mais enxuto — ação e moeda logo
@@ -138,11 +157,22 @@ as duas estratégias sugerirem lados opostos (compra x venda) — em vez de
 duas mensagens cheias repetidas, que davam a impressão de "operação
 clonada".
 
-**BTC e ETH também ganharam uma mensagem curta em TODA rodada por hora**
-("⭐ BTC / ETH — STATUS DA RODADA"): mostra o sinal ativo se tiver, ou avisa
-explicitamente "SEM SWING ATIVO agora" junto com os dois cenários (alta e
-baixa, com faixa de preço) — assim BTC nunca fica "escondido" atrás dos
-alertas de outras moedas.
+**A varredura de toda hora não manda mais uma mensagem solta por moeda.**
+Agora ela roda em todo o watchlist por baixo dos panos (pra escolher as
+melhores altcoins do momento e alimentar o relatório categorizado), mas só
+manda **uma mensagem por rodada** ("🔭 VELA MONITOR — STATUS"), sempre com:
+
+- **BTC, ETH e XRP** — fixos, sempre aparecem.
+- **2 altcoins "em destaque"** — escolhidas a cada rodada entre as que têm
+  sinal de verdade ativo (prioridade) ou estão mais perto de bater um.
+
+Pra cada uma dessas 5 moedas, a mensagem mostra o sinal ativo se tiver, ou
+os **near-miss** dela (o que antes só aparecia numa execução manual — ex.:
+"RSI a 4 pontos do gatilho de scalp") junto com os cenários de alta/baixa
+quando não tem nada disparado nem perto. Isso resolve dois problemas ao
+mesmo tempo: corta a enxurrada de mensagens de moedas que você não
+acompanha, e passa a te avisar de setups se formando no BTC/ETH/XRP, que
+antes só apareciam rodando o diagnóstico manualmente.
 
 **Importante sobre execuções manuais**: o relatório categorizado completo
 (seção abaixo) só dispara automaticamente pelo relógio — testar manualmente

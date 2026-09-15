@@ -57,17 +57,32 @@
 #      o "o que fazer quando o mercado fica parado", em vez de ficar sem
 #      nenhuma ideia quando não tem uma tendência definida.
 #
-#  Cada mensagem de sinal agora vem com um checklist (✅/❌) dos itens que
+#   9) CONFLUÊNCIA MULTI-INDICADOR (mais de um timeframe) — em vez de exigir
+#      só UM critério isolado, soma quantos fatores técnicos diferentes
+#      (fibonacci em mais de um nível — 0.382/0.5/0.618 —, EMAs em mais de
+#      um período — 12/21/50/200 — no 4h e no 15m, e RSI em sobrevenda/
+#      sobrecompra no 15m e no 1h) estão alinhados na mesma direção ao
+#      mesmo tempo. Pensado pro tipo de leitura manual que junta "fib 0.618
+#      no 15m perto da EMA200, aproximando da EMA12 no 4h" — cada indicador
+#      sozinho não dispara os outros sinais, mas a combinação de vários
+#      sim.
+#
+#  Cada mensagem de sinal vem com um checklist (✅/❌) dos itens que
 #  confirmaram aquele setup (RSI, volume, estrutura, EMA de contexto) e,
 #  quando fizer sentido, um alvo técnico de lucro (próximo topo/fundo
 #  relevante ou movimento medido) além do stop. Quando a MESMA moeda bate
 #  mais de uma estratégia ao mesmo tempo, o bot manda uma mensagem só
 #  explicando isso ("bateu 2 estratégias"), em vez de mensagens cheias
-#  repetidas (o que parecia "operação clonada"). BTC e ETH também recebem
-#  uma mensagem curta de status em TODA rodada horária — sinal ativo, ou
-#  aviso explícito de "sem swing ativo" com os cenários de alta/baixa.
+#  repetidas (o que parecia "operação clonada").
 #
-#   9) RELATÓRIO CATEGORIZADO (enviado em horários fixos do dia, ver
+#  A varredura horária roda em TODO o watchlist por baixo dos panos, mas só
+#  manda UMA mensagem de status por rodada, sempre com BTC, ETH e XRP
+#  (fixos) + 2 altcoins escolhidas entre as que têm sinal ativo ou estão
+#  mais perto de bater um — pra cada uma delas, mostra o sinal ativo, ou o
+#  near-miss (diagnóstico) mais os cenários de alta/baixa quando não tem
+#  nada disparado nem perto.
+#
+#  10) RELATÓRIO CATEGORIZADO (enviado em horários fixos do dia, ver
 #      REPORT_TIMES_UTC) — organiza o que a varredura já achou por horizonte
 #      de operação, em vez de mandar sinal por sinal solto: swing principal
 #      (BTC e ETH, sempre aparecem — com sinal ativo, ou os dois cenários
@@ -232,6 +247,23 @@ RANGE_LOOKBACK = 20          # candles de 4h (~3,3 dias) usados pra definir o ra
 RANGE_MAX_PCT = 0.05         # até 5% de amplitude entre topo e fundo = mercado "parado"
 RANGE_EDGE_ZONE_PCT = 0.25   # % da faixa (a partir de cada borda) considerada zona de entrada
 
+# --- Confluência multi-indicador (SINAL 9) — em vez de exigir só UM
+# critério isolado, soma quantos fatores técnicos diferentes (fibonacci em
+# mais de um nível, EMAs em mais de um período, RSI em mais de um
+# timeframe) estão alinhados na mesma direção ao mesmo tempo. Pensado pro
+# tipo de leitura manual tipo "fib 0.618 no 15m perto da EMA200, e
+# aproximando da EMA12 no 4h" — cada indicador sozinho não vira sinal, mas
+# a combinação sim ---
+CONFLUENCE_FIB_LEVELS = [0.382, 0.5, 0.618]
+CONFLUENCE_FIB_TOLERANCE = 0.008
+CONFLUENCE_EMA_PERIODS = [12, 21, 50, 200]
+CONFLUENCE_EMA_TOLERANCE = 0.006
+CONFLUENCE_RSI_OVERSOLD = 35
+CONFLUENCE_RSI_OVERBOUGHT = 65
+CONFLUENCE_MIN_FACTORS = 3       # quantos fatores alinhados pra virar sinal de verdade
+CONFLUENCE_DIAG_MIN_FACTORS = 2  # quantos já alinhados pra virar diagnóstico (near-miss)
+CONFLUENCE_15M_LIMIT = 300       # candles de 15m suficientes pra dar pra calcular EMA200 nesse timeframe
+
 # --- Diagnóstico de proximidade (near-miss) — só usado nas execuções manuais,
 # pra mostrar quais moedas estão perto de bater algum critério mesmo sem ter
 # disparado um sinal de verdade ainda. Fica só com o diagnóstico MAIS próximo
@@ -296,6 +328,15 @@ REPORT_TIME_TOLERANCE_MIN = 8   # tolerância pra atraso do runner do GitHub Act
 REPORT_SMALL_ALTS_N = 5
 REPORT_SCALP_N = 2
 REPORT_BOTTOM_FISHING_N = 2
+
+# --- Status "core" — mandado em TODA rodada horária, mas só pra um punhado
+# fixo de moedas (em vez de mensagem solta pra qualquer moeda do watchlist
+# de 50, que virou a maior fonte de poluição no Telegram). BTC/ETH/XRP são
+# fixos; as outras CORE_EXTRA_ALTS_N são escolhidas a cada rodada pelas que
+# estão com sinal ativo ou mais perto de bater um (ver
+# select_core_extra_altcoins) ---
+CORE_SYMBOLS = ["BTCUSDT", "ETHUSDT", "XRPUSDT"]
+CORE_EXTRA_ALTS_N = 2
 
 # Pivô usado só no cenário touro/urso (swing longo, candle diário) — mais
 # largo que o PIVOT_LEN do 4h porque no diário pivôs curtos viram ruído.
@@ -1203,6 +1244,150 @@ def check_range_market(symbol, candles):
 
 
 # ----------------------------------------------------------------------------
+# SINAL 9 — CONFLUÊNCIA MULTI-INDICADOR (mais de um timeframe)
+# ----------------------------------------------------------------------------
+
+def _ema_hits(closes, price_ref, periods=CONFLUENCE_EMA_PERIODS, tol=CONFLUENCE_EMA_TOLERANCE):
+    """Devolve as EMAs (de `periods`) que o preço está a até `tol` de distância."""
+    hits = []
+    for periodo in periods:
+        ema = compute_ema(closes, periodo)
+        if ema is None:
+            continue
+        dist = (price_ref - ema) / ema
+        if abs(dist) <= tol:
+            hits.append((periodo, ema, dist))
+    return hits
+
+
+def _confluence_fatores(candles_4h, candles_15m, candles_1h):
+    """
+    Monta a lista de fatores técnicos alinhados (fibonacci de mais de um
+    nível, EMAs de mais de um período em dois timeframes, RSI em
+    sobrevenda/sobrecompra no 15m e no 1h) na direção sugerida pela última
+    perna de 4h. Compartilhado pelo sinal de verdade e pelo diagnóstico
+    (near-miss) — só muda o corte de quantos fatores contam como "bastante".
+    """
+    if len(candles_4h) < (2 * PIVOT_LEN + 10) or not candles_15m or not candles_1h:
+        return None
+    pivot_highs, pivot_lows = find_pivots(candles_4h, PIVOT_LEN)
+    leg = last_impulse_leg(pivot_highs, pivot_lows)
+    if leg is None:
+        return None
+
+    price_now = candles_4h[-1]["close"]
+    price_15m = candles_15m[-1]["close"]
+    rsi_15m = compute_rsi([c["close"] for c in candles_15m])
+    rsi_1h = compute_rsi([c["close"] for c in candles_1h])
+
+    fatores = []
+    for level in CONFLUENCE_FIB_LEVELS:
+        fib_price = fib_level_price(leg, level)
+        if price_in_fib_zone(price_now, fib_price, CONFLUENCE_FIB_TOLERANCE):
+            fatores.append(f"Preço na zona de Fibonacci {level} da perna de 4h ({fib_price:.4g})")
+            break  # um nível já basta como fator — não soma os 3 juntos
+
+    for periodo, ema, dist in _ema_hits([c["close"] for c in candles_4h], price_now):
+        fatores.append(f"Preço a {abs(dist) * 100:.1f}% da EMA{periodo} no 4h ({ema:.4g})")
+
+    for periodo, ema, dist in _ema_hits([c["close"] for c in candles_15m], price_15m):
+        fatores.append(f"Preço a {abs(dist) * 100:.1f}% da EMA{periodo} no 15m ({ema:.4g})")
+
+    if leg["direction"] == "alta":
+        if rsi_15m is not None and rsi_15m <= CONFLUENCE_RSI_OVERSOLD:
+            fatores.append(f"RSI do 15m em sobrevenda ({rsi_15m:.1f})")
+        if rsi_1h is not None and rsi_1h <= CONFLUENCE_RSI_OVERSOLD:
+            fatores.append(f"RSI do 1h em sobrevenda ({rsi_1h:.1f})")
+    else:
+        if rsi_15m is not None and rsi_15m >= CONFLUENCE_RSI_OVERBOUGHT:
+            fatores.append(f"RSI do 15m em sobrecompra ({rsi_15m:.1f})")
+        if rsi_1h is not None and rsi_1h >= CONFLUENCE_RSI_OVERBOUGHT:
+            fatores.append(f"RSI do 1h em sobrecompra ({rsi_1h:.1f})")
+
+    return {"leg": leg, "price_now": price_now, "price_15m": price_15m, "fatores": fatores}
+
+
+def check_confluence(symbol, candles_4h, candles_15m, candles_1h):
+    """
+    Em vez de exigir só UM critério isolado (fib OU EMA OU RSI), soma
+    quantos fatores técnicos diferentes — fibonacci (0.382/0.5/0.618) da
+    perna de 4h, EMAs (12/21/50/200) no 4h e no 15m, e RSI em sobrevenda/
+    sobrecompra no 15m e no 1h — estão alinhados na mesma direção ao mesmo
+    tempo. Pensado pro tipo de leitura manual que junta "fib 0.618 no 15m
+    perto da EMA200, aproximando da EMA12 no 4h": cada indicador sozinho
+    não vira sinal de verdade em nenhum dos outros checks, mas a
+    combinação de vários ao mesmo tempo sim.
+    """
+    dados = _confluence_fatores(candles_4h, candles_15m, candles_1h)
+    if dados is None or len(dados["fatores"]) < CONFLUENCE_MIN_FACTORS:
+        return None
+
+    leg = dados["leg"]
+    fatores = dados["fatores"]
+    price_now = dados["price_now"]
+    price_15m = dados["price_15m"]
+
+    if leg["direction"] == "alta":
+        acao = "COMPRAR"
+        titulo = "Confluência multi-indicador — possível fundo ascendente se formando"
+        stop = avoid_round_number_stop(price_now * 0.985, "compra")
+    else:
+        acao = "VENDER"
+        titulo = "Confluência multi-indicador — possível topo descendente se formando"
+        stop = avoid_round_number_stop(price_now * 1.015, "venda")
+    alvo = leg["end_price"]
+
+    detalhes = [
+        f"Preço agora (4h): {price_now:.4g}  |  Preço agora (15m): {price_15m:.4g}",
+        f"Fatores alinhados ({len(fatores)}):",
+    ]
+    detalhes.extend(f"  • {f}" for f in fatores)
+    detalhes.append(f"Alvo técnico: {alvo:.4g} (último {'topo' if leg['direction'] == 'alta' else 'fundo'} da perna de 4h)")
+    detalhes.append(f"Stop sugerido: {stop:.4g}")
+
+    return {
+        "symbol": symbol, "estilo": "CONFLUÊNCIA", "acao": acao,
+        "titulo": titulo,
+        "timeframe": "4h + 15m + 1h",
+        "detalhes": detalhes,
+        "checklist": [(f, True) for f in fatores],
+        "explicacao": (
+            f"{len(fatores)} indicadores técnicos diferentes (fibonacci, EMA e RSI, em "
+            f"mais de um timeframe) alinhados na mesma direção ao mesmo tempo — "
+            f"confluência multi-indicador, junta vários fatores em vez de depender só "
+            f"de um."
+        ),
+        "aviso": (
+            "Sinal combinado de vários indicadores técnicos ao mesmo tempo — ainda "
+            "assim é leitura automática, não é confirmação garantida de reversão."
+        ),
+    }
+
+
+def diagnose_confluence(candles_4h, candles_15m, candles_1h):
+    """
+    Versão near-miss do check_confluence: mostra os fatores já alinhados
+    mesmo quando ainda não chegou no mínimo pra virar sinal de verdade.
+    """
+    dados = _confluence_fatores(candles_4h, candles_15m, candles_1h)
+    if dados is None:
+        return None
+    fatores = dados["fatores"]
+    n = len(fatores)
+    if n < CONFLUENCE_DIAG_MIN_FACTORS or n >= CONFLUENCE_MIN_FACTORS:
+        return None  # já virou sinal de verdade lá em cima, ou longe demais ainda
+    lado = "fundo ascendente" if dados["leg"]["direction"] == "alta" else "topo descendente"
+    return {
+        "tipo": "Confluência multi-indicador",
+        "score": 1.0 / n,
+        "texto": (
+            f"{n} fator(es) já alinhado(s) pra um possível {lado}: " + "; ".join(fatores) +
+            f". Falta(m) mais {CONFLUENCE_MIN_FACTORS - n} pra virar sinal de verdade."
+        ),
+    }
+
+
+# ----------------------------------------------------------------------------
 # DIAGNÓSTICO DE PROXIMIDADE (near-miss) — sob demanda, execução manual
 #
 # Cada função abaixo espelha um dos checks de sinal acima, mas em vez de só
@@ -1465,7 +1650,7 @@ def build_symbol_deep_dive(symbol_input):
         candles_4h = fetch_klines(symbol, INTERVAL, KLINES_LIMIT)
         candles_d = fetch_klines(symbol, "1d", 200)
         candles_w = fetch_klines(symbol, "1w", 1000)
-        candles_15m = fetch_klines(symbol, "15m", 100)
+        candles_15m = fetch_klines(symbol, "15m", CONFLUENCE_15M_LIMIT)
         candles_1h = fetch_klines(symbol, "1h", 100)
     except urllib.error.HTTPError as e:
         return (f"⚠️ Não consegui buscar dados de {symbol} na Binance (erro {e.code}). "
@@ -1497,6 +1682,12 @@ def build_symbol_deep_dive(symbol_input):
                 sinais_ativos.append(sig)
         except Exception:
             pass
+        try:
+            sig = check_confluence(symbol, candles_4h, candles_15m, candles_1h)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
         rsi_15m = compute_rsi([c["close"] for c in candles_15m])
         rsi_1h = compute_rsi([c["close"] for c in candles_1h])
 
@@ -1517,6 +1708,7 @@ def build_symbol_deep_dive(symbol_input):
         diagnose_scalp(rsi_15m, rsi_1h) if (rsi_15m is not None and rsi_1h is not None) else None,
         diagnose_bottom_fishing(candles_d, candles_w) if (candles_d and candles_w) else None,
         diagnose_light_reversal(candles_d) if candles_d else None,
+        diagnose_confluence(candles_4h, candles_15m, candles_1h) if (candles_15m and candles_1h) else None,
     ) if d]
 
     contexto_txt = None
@@ -1740,9 +1932,9 @@ def analyze_symbol(symbol, tier=None):
     except Exception as e:
         print(f"  {symbol}: erro no check de mercado em consolidação ({e})")
 
-    # cascata de RSI usa 15m/1h — busca uma vez só e reaproveita pro diagnóstico
+    # cascata de RSI e confluência usam 15m/1h — busca uma vez só e reaproveita
     try:
-        candles_15m = fetch_klines(symbol, "15m", 100)
+        candles_15m = fetch_klines(symbol, "15m", CONFLUENCE_15M_LIMIT)
         candles_1h = fetch_klines(symbol, "1h", 100)
     except Exception as e:
         print(f"  {symbol}: erro ao buscar candles 15m/1h ({e})")
@@ -1761,6 +1953,17 @@ def analyze_symbol(symbol, tier=None):
                     diagnosticos.append({"symbol": symbol, **diag})
         except Exception as e:
             print(f"  {symbol}: erro no check de cascata scalp ({e})")
+
+        try:
+            sig = check_confluence(symbol, candles_4h, candles_15m, candles_1h)
+            if sig:
+                sinais.append(sig)
+            else:
+                diag = diagnose_confluence(candles_4h, candles_15m, candles_1h)
+                if diag:
+                    diagnosticos.append({"symbol": symbol, **diag})
+        except Exception as e:
+            print(f"  {symbol}: erro no check de confluência ({e})")
 
     # bottom fishing e reversão leve compartilham os candles diário/semanal
     try:
@@ -2065,17 +2268,64 @@ def _build_btc_eth_lines(sinais_por_moeda, candles_d_extra):
     return linhas
 
 
-def build_btc_eth_status_message(sinais_por_moeda, candles_d_extra):
+def select_core_extra_altcoins(watchlist, sinais_por_moeda, diagnosticos_lista_por_moeda, n=CORE_EXTRA_ALTS_N):
     """
-    Mensagem curta e fixa mandada em TODA rodada (a cada hora) — pra nunca
-    ficar sem saber o status do BTC e do ETH, mesmo fora dos horários do
-    relatório categorizado completo.
+    Escolhe as `n` melhores altcoins (fora BTC/ETH/XRP) pra entrar no status
+    de toda rodada horária: prioridade máxima pra quem já tem sinal de
+    verdade ativo; sem isso, quem estiver mais perto de bater um (menor
+    score de diagnóstico entre os near-miss dela).
     """
-    linhas = ["⭐ BTC / ETH — STATUS DA RODADA", ""]
-    linhas.extend(_build_btc_eth_lines(sinais_por_moeda, candles_d_extra))
-    linhas.append("")
-    linhas.append("Leitura automática — não é recomendação de investimento.")
-    return "\n".join(linhas)
+    candidatos = [s for s in watchlist if s not in CORE_SYMBOLS]
+
+    def chave(symbol):
+        if sinais_por_moeda.get(symbol):
+            return (0, 0.0)
+        diags = diagnosticos_lista_por_moeda.get(symbol) or []
+        if diags:
+            return (1, min(d["score"] for d in diags))
+        return (2, 999.0)
+
+    candidatos.sort(key=chave)
+    return candidatos[:n]
+
+
+def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra):
+    """
+    Mensagem única mandada em TODA rodada horária, só pros símbolos "core"
+    (ver select_core_extra_altcoins) — em vez de mensagem solta pra
+    qualquer moeda do watchlist de 50 que bater um sinal, o que era a
+    maior fonte de poluição no Telegram. Pra quem não tem sinal de
+    verdade, mostra os near-miss (diagnóstico) — é esse pedaço que antes só
+    aparecia em execuções manuais, e que faz falta pra pegar um setup se
+    formando (tipo RSI caindo no 15m perto de uma zona relevante no 4h)
+    antes dele virar sinal de verdade.
+    """
+    partes = ["🔭 VELA MONITOR — STATUS (BTC, ETH, XRP + destaques)"]
+    for symbol in core_symbols:
+        nome = symbol.replace("USDT", "/USDT")
+        sinais = sinais_por_moeda.get(symbol) or []
+        if len(sinais) > 1:
+            partes.append(format_combined_signal_message(symbol, sinais))
+        elif sinais:
+            partes.append(format_signal_message(sinais[0]))
+        else:
+            diags = sorted(diagnosticos_lista_por_moeda.get(symbol) or [], key=lambda d: d["score"])
+            bloco = [f"🔎 {nome} — sem sinal de verdade agora"]
+            if diags:
+                bloco.append("Mais perto de bater (near-miss):")
+                for d in diags:
+                    bloco.append(f"  • {d['tipo']}: {d['texto']}")
+            candles_d = candles_d_extra.get(symbol)
+            cenario = build_bull_bear_scenario(symbol, candles_d) if candles_d else None
+            if cenario:
+                bloco.append(f"Cenário de swing (preço {cenario['price_now']:.4g}):")
+                bloco.append(f"  {cenario['bull']}")
+                bloco.append(f"  {cenario['bear']}")
+            if not diags and not cenario:
+                bloco.append("Sem setup próximo e sem dado suficiente pro cenário agora.")
+            partes.append("\n".join(bloco))
+    partes.append("Leitura técnica automática — não é recomendação de investimento.")
+    return "\n\n".join(partes)
 
 
 def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra=None):
@@ -2195,7 +2445,12 @@ def main():
     print(f"[{datetime.now(timezone.utc).isoformat()}] Iniciando varredura de "
           f"{len(watchlist)} moedas (pullback + exaustão + cascata scalp + "
           f"bottom fishing + reversão leve + rompimento falho + consolidação/range)...")
-    encontrados = 0
+    # A varredura roda em TODO o watchlist (pra escolher as melhores altcoins
+    # do momento e alimentar o relatório categorizado), mas NÃO manda mais
+    # uma mensagem solta pra cada moeda que bater um sinal — isso virou a
+    # maior fonte de poluição no Telegram. As mensagens em tempo real agora
+    # ficam só pro grupo "core" (ver build_core_status_message), mandado uma
+    # vez por rodada logo abaixo.
     sinais_moeda_count = 0
     todos_diagnosticos = []
     sinais_por_moeda = {}
@@ -2206,29 +2461,18 @@ def main():
             print(f"  {symbol}: erro na análise ({e})")
             continue
         sinais_por_moeda[symbol] = sinais
-        if len(sinais) > 1:
-            # mais de uma estratégia bateu na mesma moeda ao mesmo tempo —
-            # manda uma mensagem só combinando as duas, em vez de duas
-            # mensagens cheias repetidas (o que parecia "operação clonada")
-            encontrados += len(sinais)
-            sinais_moeda_count += len(sinais)
-            msg = format_combined_signal_message(symbol, sinais)
-            print("-" * 60)
-            print(msg)
-            ok = send_telegram_message(msg)
-            print("  -> enviado pro Telegram (combinado)" if ok else "  -> FALHOU ao enviar")
-        elif sinais:
-            for sig in sinais:
-                encontrados += 1
-                sinais_moeda_count += 1
-                msg = format_signal_message(sig)
-                print("-" * 60)
-                print(msg)
-                ok = send_telegram_message(msg)
-                print("  -> enviado pro Telegram" if ok else "  -> FALHOU ao enviar")
+        sinais_moeda_count += len(sinais)
+        if sinais:
+            print(f"  {symbol}: {len(sinais)} sinal(is) — {', '.join(s['titulo'] for s in sinais)}")
         else:
             print(f"  {symbol}: sem setup no momento")
         todos_diagnosticos.extend(diagnosticos)
+
+    diagnosticos_lista_por_moeda = {}
+    for d in todos_diagnosticos:
+        diagnosticos_lista_por_moeda.setdefault(d["symbol"], []).append(d)
+
+    encontrados = sinais_moeda_count
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] Verificando dominância BTC/altseason "
           f"e termômetro de ciclo...")
@@ -2268,19 +2512,22 @@ def main():
 
     is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
 
-    print(f"[{datetime.now(timezone.utc).isoformat()}] Montando status de BTC/ETH da rodada...")
+    print(f"[{datetime.now(timezone.utc).isoformat()}] Montando status core (BTC, ETH, XRP + destaques)...")
+    extra_alts = select_core_extra_altcoins(watchlist, sinais_por_moeda, diagnosticos_lista_por_moeda)
+    core_symbols = CORE_SYMBOLS + extra_alts
+    print(f"  altcoins escolhidas pro status dessa rodada: {', '.join(extra_alts) or '(nenhuma)'}")
     candles_d_extra = {}
-    for sym in ("BTCUSDT", "ETHUSDT"):
+    for sym in core_symbols:
         try:
             candles_d_extra[sym] = fetch_klines(sym, "1d", 200)
         except Exception as e:
             print(f"  erro buscando candle diário de {sym} ({e})")
     try:
-        status_msg = build_btc_eth_status_message(sinais_por_moeda, candles_d_extra)
+        status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra)
         ok = send_telegram_message(status_msg)
-        print("  -> status BTC/ETH enviado" if ok else "  -> FALHOU ao enviar o status BTC/ETH")
+        print("  -> status core enviado" if ok else "  -> FALHOU ao enviar o status core")
     except Exception as e:
-        print(f"  erro montando o status de BTC/ETH ({e})")
+        print(f"  erro montando o status core ({e})")
 
     # O relatório categorizado completo só dispara pelo relógio (não em
     # execuções manuais) — testar manualmente perto de um dos horários não
