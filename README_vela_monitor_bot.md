@@ -62,10 +62,18 @@ Arquivos deste pacote:
      [newsapi.org](https://newsapi.org/register) (cadastro grátis, plano
      "Developer"). Sem esse secret, o bot funciona normalmente — só não
      manda as manchetes da Reuters quando não acha nenhum setup na hora.
+   - `CMC_API_KEY` (opcional) = uma chave gratuita de
+     [coinmarketcap.com/api](https://coinmarketcap.com/api/) (cadastro
+     grátis, plano "Basic"). Usada só no relatório categorizado (ver
+     abaixo) pra saber quais são as 10 maiores moedas por market cap no
+     momento. Sem esse secret, o bot usa uma lista fixa aproximada das 10
+     maiores moedas de hoje, que pode ficar desatualizada se o ranking
+     mudar bastante.
 4. Pronto — o workflow já está configurado pra rodar automaticamente a
-   cada hora (`cron: "0 * * * *"`). Você também pode disparar manualmente
-   em **Actions → Vela Monitor - varredura horária → Run workflow** pra
-   testar na hora.
+   cada hora (`cron: "0 * * * *"`), mais 3 horários extras pro relatório
+   categorizado (ver seção própria abaixo). Você também pode disparar
+   manualmente em **Actions → Vela Monitor - varredura horária → Run
+   workflow** pra testar na hora.
 
 ### Opção B — Rodar localmente no seu Mac (cron)
 
@@ -114,6 +122,40 @@ Arquivos deste pacote:
 - O cron do `vela_monitor.yml` — pra mudar a frequência (ex.: de 15 em 15
   minutos: `*/15 * * * *`, lembrando que o GitHub Actions pode atrasar
   alguns minutos em horários de pico da plataforma).
+
+## Relatório categorizado (6x por dia)
+
+Além dos alertas soltos de cada sinal, o bot manda um relatório organizado
+por horizonte de operação em 6 horários fixos do dia (horário da Irlanda,
+horário de verão/IST): **06:00, 14:00, 14:30, 19:45, 20:15 e 23:00**
+(ligados à rotina do mercado americano — abertura, meio do pregão, 20h e
+fechamento do candle diário). Esse relatório é bem mais enxuto que uma
+lista de todas as moedas — ele filtra pra:
+
+- **Swing principal**: BTC e ETH sempre aparecem. Se tiver sinal de swing
+  ativo, mostra ele. Se não tiver, mostra dois cenários (um de alta, um de
+  baixa) com faixa de preço de entrada, baseados no último topo/fundo
+  confirmado no diário e na comparação de volume — pra você ter uma leitura
+  mesmo sem sinal disparado.
+- **Swing secundário**: XRP + as 10 maiores moedas por market cap do
+  momento — só entram na lista as que tiverem sinal ativo.
+- **Altcoins pequenas em setup**: até 5 moedas de menor porte (proxy de
+  volume) com algum sinal ativo.
+- **Scalp**: até 2 moedas com sinal de scalp ativo.
+- **Bottom fishing**: até 2 moedas, priorizando as de maior porte/liquidez.
+
+Isso substitui a ideia de mandar cada sinal solto pra você conseguir ver
+tudo organizado numa mensagem só, sem precisar rolar dezenas de alertas.
+Petróleo, ouro e mercado americano (S&P 500) ainda não entram nessa versão
+— a Binance só tem dados de cripto, então esses três ficariam de fora até
+adicionarmos uma fonte de dados separada.
+
+**Sobre o horário**: a Irlanda muda de fuso duas vezes por ano (horário de
+verão IST = UTC+1, horário de inverno GMT = UTC+0), e o cron do GitHub
+Actions só entende UTC fixo. Os horários acima valem pro horário de verão
+(a maior parte do ano) — no horário de inverno, tudo sai 1h mais cedo do
+que o pretendido. Se isso incomodar, me avisa quando mudar o horário de
+inverno (geralmente final de outubro) que eu ajusto o cron.
 
 ## Diagnóstico e consulta por moeda (execução manual)
 

@@ -49,6 +49,29 @@
 #      último) — memecoins muito à frente dos outros dois grupos ao mesmo
 #      tempo tende a marcar fase mais avançada/especulativa do movimento.
 #
+#   8) MERCADO EM CONSOLIDAÇÃO / RANGE (swing curto) — quando não tem
+#      tendência clara (últimos candles de 4h comprimidos numa faixa
+#      estreita) e o preço está perto de uma das bordas dessa faixa, sugere
+#      operar o próprio range: comprar perto do fundo mirando o topo, ou
+#      vender perto do topo mirando o fundo, com stop logo fora da faixa. É
+#      o "o que fazer quando o mercado fica parado", em vez de ficar sem
+#      nenhuma ideia quando não tem uma tendência definida.
+#
+#   9) RELATÓRIO CATEGORIZADO (enviado em horários fixos do dia, ver
+#      REPORT_TIMES_UTC) — organiza o que a varredura já achou por horizonte
+#      de operação, em vez de mandar sinal por sinal solto: swing principal
+#      (BTC e ETH, sempre aparecem — com sinal ativo, ou os dois cenários
+#      touro/urso com faixa de preço quando não tem sinal), swing secundário
+#      (XRP + top 10 moedas por market cap da CoinMarketCap), até
+#      REPORT_SMALL_ALTS_N altcoins pequenas em setup, até REPORT_SCALP_N
+#      scalps ativos e até REPORT_BOTTOM_FISHING_N bottom fishing — sempre
+#      filtrando pelas melhores (porte/liquidez) pra não lotar o Telegram.
+#      Segue a mesma ideia dos vídeos do Diego de casar o timeframe do
+#      gráfico com o horizonte da operação (day trade -> 1h, swing de 1
+#      semana -> 4h, swing de 1 mês -> 1d, que ele trata como o setup mais
+#      forte de todos). Petróleo, ouro e mercado americano ficam de fora
+#      dessa versão (não existem na Binance) — só cripto por enquanto.
+#
 #  DIAGNÓSTICO E CONSULTA SOB DEMANDA (só nas execuções manuais, pelo botão
 #  "Run workflow" no GitHub Actions):
 #
@@ -189,14 +212,22 @@ FAILED_BREAK_PENETRATION_PCT = 0.001   # rompimento mínimo (0.1%) além do nív
 FAILED_BREAK_RECOVERY_PCT = 0.001      # recuperação mínima (0.1%) de volta pro outro lado
 FAILED_BREAK_VOLUME_RATIO = 1.3        # volume mínimo (x média) no rompimento ou na recuperação
 
+# --- Mercado em consolidação / range (swing curto) — "o que fazer quando o
+# mercado fica parado": sem tendência clara, opera o próprio range em vez de
+# ficar sem nenhuma ideia ---
+RANGE_LOOKBACK = 20          # candles de 4h (~3,3 dias) usados pra definir o range
+RANGE_MAX_PCT = 0.05         # até 5% de amplitude entre topo e fundo = mercado "parado"
+RANGE_EDGE_ZONE_PCT = 0.25   # % da faixa (a partir de cada borda) considerada zona de entrada
+
 # --- Diagnóstico de proximidade (near-miss) — só usado nas execuções manuais,
 # pra mostrar quais moedas estão perto de bater algum critério mesmo sem ter
-# disparado um sinal de verdade ainda ---
+# disparado um sinal de verdade ainda. Fica só com o diagnóstico MAIS próximo
+# de cada moeda (não um por tipo de sinal) pra não virar uma lista gigante ---
 PULLBACK_DIAG_MAX_PCT = 0.025      # até 2,5% da zona fib já entra no diagnóstico
 EXHAUSTION_DIAG_RSI_BAND = 15      # RSI dentro de 15 pontos do gatilho (70-85 ou 15-30)
 SCALP_DIAG_RSI_BAND = 10           # RSI dentro de 10 pontos do gatilho de scalp
 REVERSAL_DRAWDOWN_DIAG_BAND = 0.05  # até 5 pontos percentuais abaixo do drawdown mínimo
-DIAGNOSTIC_TOP_N = 12               # quantas moedas entram no resumo de diagnóstico
+DIAGNOSTIC_TOP_N = 6                # quantas moedas (já deduplicadas) entram no resumo
 
 # Hosts pra dados públicos da Binance, em ordem de tentativa. O primeiro é o
 # espelho oficial de dados públicos (sem autenticação) — ele evita o bloqueio
@@ -225,6 +256,37 @@ NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "").strip()
 NEWS_API_BASE = "https://newsapi.org/v2"
 NEWS_MAX_HEADLINES = 4
 TRANSLATE_BASE = "https://api.mymemory.translated.net/get"
+
+# --- Top 10 por market cap (CoinMarketCap) — usado no relatório categorizado
+# pra saber quais moedas entram no "swing secundário" além do XRP. Precisa
+# do secret CMC_API_KEY (cadastro grátis em coinmarketcap.com/api) — sem
+# ele, cai numa lista fixa aproximada (pode ficar desatualizada se o
+# ranking mudar bastante) ---
+CMC_API_KEY = os.environ.get("CMC_API_KEY", "").strip()
+CMC_API_BASE = "https://pro-api.coinmarketcap.com/v1"
+CMC_TOP_N = 10
+CMC_FALLBACK_SYMBOLS = [
+    "BTCUSDT", "ETHUSDT", "XRPUSDT", "BNBUSDT", "SOLUSDT",
+    "DOGEUSDT", "ADAUSDT", "TRXUSDT", "LINKUSDT", "AVAXUSDT",
+]
+
+# --- Relatório categorizado (swing longo + destaques) — em vez de rodar em
+# TODA execução horária, só monta e manda nos horários abaixo (hora:minuto
+# em UTC). Pedido pra bater com a rotina de mercado americano (abertura,
+# meio do pregão, 20h, fechamento do candle diário) no horário da Irlanda —
+# como a Irlanda muda de fuso (IST/GMT) duas vezes por ano e o cron do
+# GitHub Actions só entende UTC fixo, esses horários valem pro horário de
+# verão europeu (IST, UTC+1); no horário de inverno (GMT) tudo sai 1h mais
+# cedo do que o pretendido, a menos que a lista seja ajustada ---
+REPORT_TIMES_UTC = [(5, 0), (13, 0), (13, 30), (18, 45), (19, 15), (22, 0)]
+REPORT_TIME_TOLERANCE_MIN = 8   # tolerância pra atraso do runner do GitHub Actions
+REPORT_SMALL_ALTS_N = 5
+REPORT_SCALP_N = 2
+REPORT_BOTTOM_FISHING_N = 2
+
+# Pivô usado só no cenário touro/urso (swing longo, candle diário) — mais
+# largo que o PIVOT_LEN do 4h porque no diário pivôs curtos viram ruído.
+SCENARIO_PIVOT_LEN = 5
 
 
 # ----------------------------------------------------------------------------
@@ -975,6 +1037,71 @@ def check_cycle_phase(btc_return, avg_alt_return):
 
 
 # ----------------------------------------------------------------------------
+# SINAL 8 — MERCADO EM CONSOLIDAÇÃO / RANGE (swing curto)
+# ----------------------------------------------------------------------------
+
+def check_range_market(symbol, candles):
+    """
+    "O que fazer quando o mercado fica parado": em vez de precisar de uma
+    tendência clara, procura uma faixa estreita (RANGE_MAX_PCT de amplitude)
+    nos últimos RANGE_LOOKBACK candles de 4h. Se o preço está perto de uma
+    das bordas dessa faixa, sugere operar o próprio range — comprar perto do
+    fundo mirando o topo, ou vender perto do topo mirando o fundo — com stop
+    logo fora da faixa. Só dispara perto das bordas: no meio do range não
+    tem um ponto de entrada com risco/retorno bom.
+    """
+    if len(candles) < RANGE_LOOKBACK:
+        return None
+    window = candles[-RANGE_LOOKBACK:]
+    range_high = max(c["high"] for c in window)
+    range_low = min(c["low"] for c in window)
+    if range_low <= 0 or range_high <= range_low:
+        return None
+    range_pct = (range_high - range_low) / range_low
+    if range_pct > RANGE_MAX_PCT:
+        return None
+
+    price_now = candles[-1]["close"]
+    posicao = (price_now - range_low) / (range_high - range_low)
+
+    if posicao <= RANGE_EDGE_ZONE_PCT:
+        acao, lado_txt = "COMPRAR", "perto do fundo do range"
+        stop = avoid_round_number_stop(range_low * 0.995, "compra")
+        alvo = range_high
+    elif posicao >= (1 - RANGE_EDGE_ZONE_PCT):
+        acao, lado_txt = "VENDER", "perto do topo do range"
+        stop = avoid_round_number_stop(range_high * 1.005, "venda")
+        alvo = range_low
+    else:
+        return None  # parado, mas no meio da faixa — sem ponto de entrada bom agora
+
+    return {
+        "symbol": symbol, "estilo": "RANGE", "acao": acao,
+        "titulo": "Mercado em consolidação — operação de range",
+        "timeframe": INTERVAL,
+        "detalhes": [
+            f"Preço agora: {price_now:.4g} ({lado_txt})",
+            f"Range dos últimos {RANGE_LOOKBACK} candles: {range_low:.4g} – {range_high:.4g} "
+            f"({range_pct * 100:.1f}% de amplitude)",
+            f"Alvo (borda oposta do range): {alvo:.4g}",
+            f"Stop sugerido: {stop:.4g}",
+        ],
+        "explicacao": (
+            f"Sem tendência clara — os últimos candles ficaram comprimidos numa faixa "
+            f"estreita ({range_pct * 100:.1f}% de amplitude). Quando não tem direção "
+            f"definida, a ideia é operar o próprio range: entrar perto de uma borda "
+            f"mirando a borda oposta, com stop logo fora dela."
+        ),
+        "aviso": (
+            "Setup de range tende a ter alvo e risco menores que um movimento de "
+            "tendência — considere reduzir o tamanho da posição em relação a um "
+            "swing/pullback de verdade, e saia se o preço romper a faixa com força "
+            "(aí deixou de ser range)."
+        ),
+    }
+
+
+# ----------------------------------------------------------------------------
 # DIAGNÓSTICO DE PROXIMIDADE (near-miss) — sob demanda, execução manual
 #
 # Cada função abaixo espelha um dos checks de sinal acima, mas em vez de só
@@ -1158,7 +1285,36 @@ def diagnose_failed_break(candles):
     return None
 
 
+def diagnose_range_market(candles):
+    if len(candles) < RANGE_LOOKBACK:
+        return None
+    window = candles[-RANGE_LOOKBACK:]
+    range_high = max(c["high"] for c in window)
+    range_low = min(c["low"] for c in window)
+    if range_low <= 0 or range_high <= range_low:
+        return None
+    range_pct = (range_high - range_low) / range_low
+    if range_pct > RANGE_MAX_PCT:
+        return None
+    price_now = candles[-1]["close"]
+    posicao = (price_now - range_low) / (range_high - range_low)
+    if RANGE_EDGE_ZONE_PCT < posicao < (1 - RANGE_EDGE_ZONE_PCT):
+        return {
+            "tipo": "Mercado em consolidação",
+            "score": 0.5,
+            "texto": (f"Mercado parado ({range_pct * 100:.1f}% de amplitude, "
+                      f"{range_low:.4g}-{range_high:.4g}) — no meio do range, "
+                      f"aguardando aproximar de uma borda pra ter entrada."),
+        }
+    return None  # já perto de uma borda: isso já teria virado sinal de verdade lá em cima
+
+
 def build_diagnostic_message(diagnosticos):
+    """
+    Fica só com o diagnóstico MAIS próximo de cada moeda (não um por tipo de
+    sinal) antes de cortar pro top N — senão uma moeda com vários near-miss
+    ao mesmo tempo lota a lista sozinha e esconde outras oportunidades.
+    """
     linhas = ["🔎 VELA MONITOR — DIAGNÓSTICO (mais perto de um setup)", ""]
     if not diagnosticos:
         linhas.append(
@@ -1167,7 +1323,12 @@ def build_diagnostic_message(diagnosticos):
             "disparou como sinal de verdade lá em cima."
         )
     else:
-        ordenados = sorted(diagnosticos, key=lambda d: d["score"])[:DIAGNOSTIC_TOP_N]
+        melhor_por_moeda = {}
+        for d in diagnosticos:
+            atual = melhor_por_moeda.get(d["symbol"])
+            if atual is None or d["score"] < atual["score"]:
+                melhor_por_moeda[d["symbol"]] = d
+        ordenados = sorted(melhor_por_moeda.values(), key=lambda d: d["score"])[:DIAGNOSTIC_TOP_N]
         for d in ordenados:
             sym = d["symbol"].replace("USDT", "/USDT")
             linhas.append(f"• {sym} — {d['texto']}")
@@ -1175,7 +1336,8 @@ def build_diagnostic_message(diagnosticos):
     linhas.append(
         "Isso é uma régua de proximidade pras mesmas regras dos sinais de verdade "
         "— não é um alerta de entrada, é pra você filtrar o que vale a pena "
-        "acompanhar de perto."
+        "acompanhar de perto (só a moeda mais próxima de cada uma, uma linha por "
+        "moeda)."
     )
     return "\n".join(linhas)
 
@@ -1218,7 +1380,7 @@ def build_symbol_deep_dive(symbol_input):
               f"Preço agora: {price_now:.4g}"]
 
     sinais_ativos = []
-    for fn in (check_pullback, check_exhaustion_climax, check_failed_breakout_reversal):
+    for fn in (check_pullback, check_exhaustion_climax, check_failed_breakout_reversal, check_range_market):
         try:
             sig = fn(symbol, candles_4h)
             if sig:
@@ -1250,6 +1412,7 @@ def build_symbol_deep_dive(symbol_input):
         diagnose_pullback(candles_4h),
         diagnose_exhaustion(candles_4h),
         diagnose_failed_break(candles_4h),
+        diagnose_range_market(candles_4h),
         diagnose_scalp(rsi_15m, rsi_1h) if (rsi_15m is not None and rsi_1h is not None) else None,
         diagnose_bottom_fishing(candles_d, candles_w) if (candles_d and candles_w) else None,
         diagnose_light_reversal(candles_d) if candles_d else None,
@@ -1413,6 +1576,17 @@ def analyze_symbol(symbol, tier=None):
     except Exception as e:
         print(f"  {symbol}: erro no check de reversão por rompimento falho ({e})")
 
+    try:
+        sig = check_range_market(symbol, candles_4h)
+        if sig:
+            sinais.append(sig)
+        else:
+            diag = diagnose_range_market(candles_4h)
+            if diag:
+                diagnosticos.append({"symbol": symbol, **diag})
+    except Exception as e:
+        print(f"  {symbol}: erro no check de mercado em consolidação ({e})")
+
     # cascata de RSI usa 15m/1h — busca uma vez só e reaproveita pro diagnóstico
     try:
         candles_15m = fetch_klines(symbol, "15m", 100)
@@ -1560,6 +1734,225 @@ def build_news_fallback_message():
 
 
 # ----------------------------------------------------------------------------
+# TOP 10 POR MARKET CAP (CoinMarketCap) — pro relatório categorizado
+# ----------------------------------------------------------------------------
+
+def fetch_cmc_top_symbols(limit=CMC_TOP_N):
+    """
+    Busca as `limit` maiores moedas por market cap na CoinMarketCap (precisa
+    do secret CMC_API_KEY, plano gratuito) e devolve os pares USDT
+    correspondentes (ex.: "BTC" -> "BTCUSDT"). Sem a chave, ou se a chamada
+    falhar por qualquer motivo, cai numa lista fixa aproximada
+    (CMC_FALLBACK_SYMBOLS) — nunca quebra o relatório por causa disso.
+    """
+    if not CMC_API_KEY:
+        return list(CMC_FALLBACK_SYMBOLS)
+    try:
+        url = (f"{CMC_API_BASE}/cryptocurrency/listings/latest"
+               f"?start=1&limit={limit}&convert=USD&sort=market_cap")
+        req = urllib.request.Request(url, headers={
+            "X-CMC_PRO_API_KEY": CMC_API_KEY,
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        symbols = []
+        for item in data.get("data", []):
+            base = (item.get("symbol") or "").upper().strip()
+            if base:
+                symbols.append(f"{base}USDT")
+        return symbols[:limit] if symbols else list(CMC_FALLBACK_SYMBOLS)
+    except Exception as e:
+        print(f"  erro buscando top {limit} da CoinMarketCap ({e}) — usando lista fixa de fallback")
+        return list(CMC_FALLBACK_SYMBOLS)
+
+
+# ----------------------------------------------------------------------------
+# CENÁRIO TOURO/URSO (swing longo, diário) — pra BTC/ETH quando não tem
+# sinal de swing ativo. Mesma lógica de pivô/fibonacci dos outros sinais,
+# só que descreve os dois lados em vez de só disparar de um lado.
+# ----------------------------------------------------------------------------
+
+def build_bull_bear_scenario(symbol, candles_d):
+    if not candles_d or len(candles_d) < (2 * SCENARIO_PIVOT_LEN + 20):
+        return None
+    pivot_highs, pivot_lows = find_pivots(candles_d, SCENARIO_PIVOT_LEN)
+    leg = last_impulse_leg(pivot_highs, pivot_lows)
+    if leg is None:
+        return None
+
+    price_now = candles_d[-1]["close"]
+    fib_price = fib_level_price(leg, FIB_LEVEL)
+    _, _, vol_ratio = volume_status(candles_d)
+    vol_txt = (f"o volume atual está em {vol_ratio * 100:.0f}% da média"
+               if vol_ratio is not None else "não dá pra confirmar o volume atual")
+
+    if leg["direction"] == "alta":
+        nivel = leg["end_price"]
+        short_low, short_high = nivel * 0.995, nivel * 1.01
+        bear = (
+            f"🔴 Pensando em VENDER: preço perto da resistência do último topo "
+            f"({nivel:.4g}). Enquanto não vier rompimento de verdade com volume "
+            f"forte, dá pra especular um short entre {short_low:.4g} e "
+            f"{short_high:.4g}, stop acima do topo, mirando a zona de Fibonacci "
+            f"0.382 dessa perna ({fib_price:.4g}) como primeiro alvo — "
+            f"principalmente porque {vol_txt}, o que enfraquece a chance de "
+            f"continuidade da alta e favorece um topo descendente."
+        )
+        bull = (
+            f"🟢 Pensando em COMPRAR: o cenário de alta só fica confirmado de "
+            f"verdade com rompimento e sustentação acima de {nivel:.4g} com "
+            f"volume forte. Nesse caso o setup mais saudável não é comprar o "
+            f"rompimento na hora — é esperar o pullback seguinte formar um fundo "
+            f"ascendente (mais alto que o anterior) antes de entrar, de olho na "
+            f"região perto de {fib_price:.4g} (fib 0.382 da perna atual) como "
+            f"referência de onde esse próximo fundo tende a aparecer."
+        )
+    else:
+        nivel = leg["end_price"]
+        long_low, long_high = nivel * 0.99, nivel * 1.005
+        bull = (
+            f"🟢 Pensando em COMPRAR: preço perto do suporte do último fundo "
+            f"({nivel:.4g}). Enquanto não vier rompimento de baixa de verdade "
+            f"com volume forte, dá pra especular uma compra entre {long_low:.4g} "
+            f"e {long_high:.4g}, stop abaixo do fundo, mirando a zona de "
+            f"Fibonacci 0.382 dessa perna ({fib_price:.4g}) como primeiro alvo — "
+            f"principalmente porque {vol_txt}, o que enfraquece a chance de "
+            f"continuidade da queda e favorece um fundo ascendente."
+        )
+        bear = (
+            f"🔴 Pensando em VENDER: o cenário de baixa só fica confirmado de "
+            f"verdade com rompimento e sustentação abaixo de {nivel:.4g} com "
+            f"volume forte. Nesse caso o setup mais saudável não é vender o "
+            f"rompimento na hora — é esperar o pullback seguinte formar um topo "
+            f"descendente (mais baixo que o anterior) antes de entrar, de olho na "
+            f"região perto de {fib_price:.4g} (fib 0.382 da perna atual) como "
+            f"referência de onde esse próximo topo tende a aparecer."
+        )
+
+    return {"symbol": symbol, "price_now": price_now, "bull": bull, "bear": bear}
+
+
+# ----------------------------------------------------------------------------
+# RELATÓRIO CATEGORIZADO — enviado nos horários fixos de REPORT_TIMES_UTC
+# ----------------------------------------------------------------------------
+
+def _tier_rank(tier):
+    return {"grande": 0, "médio": 1, "pequeno": 2}.get(tier, 3)
+
+
+def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra=None):
+    """
+    Organiza o que a varredura já achou por horizonte de operação, em vez de
+    mandar sinal solto: swing principal (BTC/ETH sempre aparecem), swing
+    secundário (XRP + top 10 CoinMarketCap), altcoins pequenas, scalp e
+    bottom fishing — cada seção limitada e filtrada pelas melhores, pra não
+    lotar o Telegram (pedido depois de um relatório de diagnóstico que saiu
+    com quase 40 moedas de uma vez).
+    """
+    candles_d_extra = candles_d_extra or {}
+    linhas = ["📊 VELA MONITOR — RELATÓRIO DO DIA (swing)", ""]
+
+    # 1) Swing principal — BTC e ETH sempre aparecem
+    linhas.append("🏆 SWING PRINCIPAL")
+    for symbol in ("BTCUSDT", "ETHUSDT"):
+        nome = symbol.replace("USDT", "")
+        sinais = sinais_por_moeda.get(symbol) or []
+        swing_sinais = [s for s in sinais if s["estilo"] != "SCALP"]
+        if swing_sinais:
+            sig = swing_sinais[0]
+            linhas.append(f"• {nome}: sinal ativo agora — {sig['titulo']} ({sig['acao']}, {sig['timeframe']}).")
+        else:
+            candles_d = candles_d_extra.get(symbol)
+            cenario = build_bull_bear_scenario(symbol, candles_d) if candles_d else None
+            if cenario:
+                linhas.append(f"• {nome}: sem sinal de swing ativo agora (preço {cenario['price_now']:.4g}). Dois cenários:")
+                linhas.append(f"  {cenario['bull']}")
+                linhas.append(f"  {cenario['bear']}")
+            else:
+                linhas.append(f"• {nome}: sem sinal ativo e sem dado suficiente pro cenário agora.")
+    linhas.append("")
+
+    # 2) Swing secundário — XRP + top 10 CoinMarketCap (menos BTC/ETH, já cobertos acima)
+    linhas.append("📈 SWING SECUNDÁRIO (XRP + top 10 mercado)")
+    try:
+        cmc_top = fetch_cmc_top_symbols()
+    except Exception as e:
+        print(f"  erro buscando top 10 CMC pro relatório ({e})")
+        cmc_top = list(CMC_FALLBACK_SYMBOLS)
+    secundario_symbols = list(dict.fromkeys(["XRPUSDT"] + cmc_top))
+    secundario_symbols = [s for s in secundario_symbols if s not in ("BTCUSDT", "ETHUSDT")]
+    destaques = []
+    for symbol in secundario_symbols:
+        sinais = sinais_por_moeda.get(symbol)
+        if sinais is None:
+            try:
+                sinais, _ = analyze_symbol(symbol, tier=tiers.get(symbol))
+            except Exception:
+                sinais = []
+        if sinais:
+            sig = sinais[0]
+            destaques.append(f"• {symbol.replace('USDT', '/USDT')}: {sig['titulo']} ({sig['acao']}, {sig['timeframe']}).")
+    if destaques:
+        linhas.extend(destaques)
+    else:
+        linhas.append("• Nenhuma dessas moedas com sinal ativo agora.")
+    linhas.append("")
+
+    # 3) Altcoins pequenas em setup
+    linhas.append(f"🔍 ALTCOINS PEQUENAS EM SETUP (até {REPORT_SMALL_ALTS_N})")
+    pequenas = []
+    for symbol in watchlist:
+        if tiers.get(symbol) != "pequeno":
+            continue
+        sinais = sinais_por_moeda.get(symbol) or []
+        if sinais:
+            pequenas.append((symbol, sinais[0]))
+    if pequenas:
+        for symbol, sig in pequenas[:REPORT_SMALL_ALTS_N]:
+            linhas.append(f"• {symbol.replace('USDT', '/USDT')}: {sig['titulo']} ({sig['acao']}, {sig['timeframe']}).")
+    else:
+        linhas.append("• Nenhuma altcoin pequena com setup ativo agora.")
+    linhas.append("")
+
+    # 4) Scalp — só os melhores (ordem do watchlist já é por volume/liquidez)
+    linhas.append(f"⚡ SCALP (até {REPORT_SCALP_N})")
+    scalps = []
+    for symbol in watchlist:
+        for sig in (sinais_por_moeda.get(symbol) or []):
+            if sig["estilo"] == "SCALP":
+                scalps.append((symbol, sig))
+    if scalps:
+        for symbol, sig in scalps[:REPORT_SCALP_N]:
+            linhas.append(f"• {symbol.replace('USDT', '/USDT')}: {sig['titulo']} ({sig['acao']}).")
+    else:
+        linhas.append("• Nenhum scalp ativo agora.")
+    linhas.append("")
+
+    # 5) Bottom fishing — prioriza porte maior (proxy de marketcap/liquidez)
+    linhas.append(f"🏺 BOTTOM FISHING (até {REPORT_BOTTOM_FISHING_N})")
+    bottoms = []
+    for symbol in watchlist:
+        for sig in (sinais_por_moeda.get(symbol) or []):
+            if sig["estilo"] == "POSIÇÃO":
+                bottoms.append((symbol, sig))
+    bottoms.sort(key=lambda item: _tier_rank(tiers.get(item[0])))
+    if bottoms:
+        for symbol, sig in bottoms[:REPORT_BOTTOM_FISHING_N]:
+            linhas.append(f"• {symbol.replace('USDT', '/USDT')}: {sig['titulo']} — porte: {tiers.get(symbol, '?')}.")
+    else:
+        linhas.append("• Nenhuma moeda batendo o critério de bottom fishing agora.")
+    linhas.append("")
+
+    linhas.append(
+        "⚠️ Leitura automática baseada nas mesmas regras dos sinais do bot — não "
+        "é recomendação de investimento. Petróleo, ouro e mercado americano ainda "
+        "não entram nessa versão do relatório (só cripto por enquanto)."
+    )
+    return "\n".join(linhas)
+
+
+# ----------------------------------------------------------------------------
 # MAIN
 # ----------------------------------------------------------------------------
 
@@ -1579,16 +1972,18 @@ def main():
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] Iniciando varredura de "
           f"{len(watchlist)} moedas (pullback + exaustão + cascata scalp + "
-          f"bottom fishing + reversão leve + rompimento falho)...")
+          f"bottom fishing + reversão leve + rompimento falho + consolidação/range)...")
     encontrados = 0
     sinais_moeda_count = 0
     todos_diagnosticos = []
+    sinais_por_moeda = {}
     for symbol in watchlist:
         try:
             sinais, diagnosticos = analyze_symbol(symbol, tier=tiers.get(symbol))
         except Exception as e:
             print(f"  {symbol}: erro na análise ({e})")
             continue
+        sinais_por_moeda[symbol] = sinais
         if sinais:
             for sig in sinais:
                 encontrados += 1
@@ -1637,6 +2032,27 @@ def main():
             print("  sem sinal de mania de memecoin no momento")
     except Exception as e:
         print(f"  erro no termômetro de ciclo ({e})")
+
+    agora = datetime.now(timezone.utc)
+    agora_min = agora.hour * 60 + agora.minute
+    is_report_time = any(
+        abs(agora_min - (h * 60 + m)) <= REPORT_TIME_TOLERANCE_MIN
+        for h, m in REPORT_TIMES_UTC
+    )
+    if is_report_time:
+        print(f"[{datetime.now(timezone.utc).isoformat()}] Horário de relatório categorizado — montando...")
+        try:
+            candles_d_extra = {}
+            for sym in ("BTCUSDT", "ETHUSDT"):
+                try:
+                    candles_d_extra[sym] = fetch_klines(sym, "1d", 200)
+                except Exception as e:
+                    print(f"  erro buscando candle diário de {sym} pro relatório ({e})")
+            report_msg = build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra)
+            ok = send_telegram_message(report_msg)
+            print("  -> relatório categorizado enviado" if ok else "  -> FALHOU ao enviar o relatório categorizado")
+        except Exception as e:
+            print(f"  erro montando o relatório categorizado ({e})")
 
     if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch":
         print(f"[{datetime.now(timezone.utc).isoformat()}] Montando diagnóstico de proximidade...")
