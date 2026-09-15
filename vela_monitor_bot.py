@@ -140,6 +140,15 @@
 #  como forma de proteger o lucro já formado sem abrir mão do resto do
 #  movimento (ver `BREAKEVEN_STOP_R_MULT`).
 #
+#  "FIQUE DE OLHO" (por símbolo, BTC/ETH, dentro do status horário): pra quem
+#  não tem sinal nem confluência batendo ainda, o status passa a trazer
+#  também o próximo nível técnico relevante que o preço ainda não tocou
+#  (fibonacci da perna de 4h, EMA de 4h, ou o suporte/resistência anterior à
+#  perna atual) — mesmo que ainda esteja longe. Antes isso só aparecia numa
+#  consulta manual por moeda (`build_entry_outlook`); agora roda toda rodada
+#  também pra avisar com antecedência quando o preço está se aproximando de
+#  uma EMA ou suporte num tempo gráfico maior, não só quando já chegou lá.
+#
 #  RESTRIÇÃO TEMPORÁRIA (SOMENTE_CORE_SYMBOLS, ligada por padrão): por
 #  pedido, o bot não analisa nem manda mensagem de NENHUMA moeda fora de
 #  CORE_SYMBOLS (BTC/ETH) — a varredura completa do watchlist (itens 3-7
@@ -3469,7 +3478,7 @@ def select_core_extra_altcoins(watchlist, sinais_por_moeda, diagnosticos_lista_p
     return candidatos[:n]
 
 
-def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend="neutra", memoria_anterior=None):
+def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend="neutra", memoria_anterior=None, candles_entry_extra=None):
     """
     Mensagem única mandada em TODA rodada horária, só pros símbolos "core"
     (ver select_core_extra_altcoins) — em vez de mensagem solta pra
@@ -3481,6 +3490,7 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
     antes dele virar sinal de verdade.
     """
     memoria_anterior = memoria_anterior or {}
+    candles_entry_extra = candles_entry_extra or {}
     nomes_core = ", ".join(s.replace("USDT", "") for s in core_symbols)
     titulo = f"🔭 VELA MONITOR — STATUS ({nomes_core})"
     if market_trend in ("alta", "baixa"):
@@ -3509,6 +3519,19 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
             if not diags and not cenario:
                 bloco.append("Sem setup próximo e sem dado suficiente pro cenário agora.")
             price_now = cenario["price_now"] if cenario else (candles_d[-1]["close"] if candles_d else None)
+            entry_candles = candles_entry_extra.get(symbol)
+            if entry_candles and entry_candles.get("4h"):
+                try:
+                    outlook_txt = build_entry_outlook(
+                        entry_candles["4h"], entry_candles.get("15m"),
+                        entry_candles.get("1h"), entry_candles.get("5m"),
+                    )
+                except Exception:
+                    outlook_txt = None
+                if outlook_txt:
+                    bloco.append("")
+                    bloco.append("📍 Fique de olho:")
+                    bloco.append(outlook_txt)
             bloco.append("")
             bloco.append(_ultima_operacao_texto(memoria_anterior.get(symbol), price_now))
             partes.append("\n".join(bloco))
@@ -3784,6 +3807,23 @@ def main():
             candles_d_extra[sym] = fetch_klines(sym, "1d", 200)
         except Exception as e:
             print(f"  erro buscando candle diário de {sym} ({e})")
+
+    # candles extra só pros símbolos "core" de verdade (BTC/ETH), pra montar
+    # o "📍 Fique de olho" (próxima EMA/suporte relevante, mesmo longe ainda)
+    # dentro do status que já roda toda hora — sem isso, esse aviso só
+    # aparecia numa consulta manual por moeda.
+    candles_entry_extra = {}
+    for sym in CORE_SYMBOLS:
+        try:
+            candles_entry_extra[sym] = {
+                "4h": fetch_klines(sym, INTERVAL, KLINES_LIMIT),
+                "15m": fetch_klines(sym, "15m", CONFLUENCE_15M_LIMIT),
+                "1h": fetch_klines(sym, "1h", 100),
+                "5m": fetch_klines(sym, "5m", CONFLUENCE_5M_LIMIT),
+            }
+        except Exception as e:
+            print(f"  erro buscando candles extra (fique de olho) de {sym} ({e})")
+
     try:
         memoria_anterior = atualiza_memoria_ultima_operacao(sinais_por_moeda)
     except Exception as e:
@@ -3791,7 +3831,7 @@ def main():
         memoria_anterior = {}
 
     try:
-        status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend=market_trend, memoria_anterior=memoria_anterior)
+        status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend=market_trend, memoria_anterior=memoria_anterior, candles_entry_extra=candles_entry_extra)
         ok = send_telegram_message(status_msg)
         print("  -> status core enviado" if ok else "  -> FALHOU ao enviar o status core")
     except Exception as e:

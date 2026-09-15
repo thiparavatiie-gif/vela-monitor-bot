@@ -278,6 +278,22 @@ preço de entrada) — trava o risco em zero sem precisar sair da operação e
 sem abrir mão do resto do movimento até o alvo. O limiar de 1R é o valor de
 `BREAKEVEN_STOP_R_MULT`, caso queira ajustar pra mais ou menos exigente.
 
+## "Fique de olho": próxima EMA/suporte relevante, mesmo antes de chegar perto
+
+O bloco de near-miss (confluência, RSI etc.) só acende quando o preço **já
+está** perto de um nível técnico. Só que isso deixava passar o caso de "está
+caindo forte agora, pode estar chegando perto de uma EMA ou suporte maior" —
+enquanto o preço ainda está longe o suficiente pra não contar como near-miss,
+o status ficava quieto.
+
+Agora, pra BTC e ETH, quando não tem sinal de verdade ativo, o status
+horário também mostra um bloco **📍 Fique de olho** com o próximo nível
+técnico relevante que o preço ainda não tocou — fibonacci da perna de 4h,
+EMA de 4h (12/21/50/200), ou o suporte/resistência anterior à perna atual —
+com a distância até lá, mesmo que ainda esteja bem longe
+(`build_entry_outlook`). Antes essa informação só aparecia numa consulta
+manual por moeda; agora roda em toda rodada automática também.
+
 ## Cardápio de trade: sinais separados de 5m (day trade), 1h (swing) e 4h (setup raro)
 
 O sinal de "Cascata de RSI" antigo exigia RSI de 15m **e** de 1h em zona de
