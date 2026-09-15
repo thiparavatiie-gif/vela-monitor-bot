@@ -123,6 +123,33 @@ Arquivos deste pacote:
   minutos: `*/15 * * * *`, lembrando que o GitHub Actions pode atrasar
   alguns minutos em horários de pico da plataforma).
 
+## Mensagens mais diretas: checklist, alvo e sem duplicidade
+
+Cada alerta de sinal agora vem num formato mais enxuto — ação e moeda logo
+no topo, os números (entrada/alvo/stop) embaixo, e um **checklist** (✅/❌)
+mostrando o que confirmou aquele setup (RSI, volume, estrutura, e a EMA21
+como item extra de contexto). Os sinais de clímax de exaustão e cascata de
+scalp, que antes só davam stop, agora também trazem um **alvo técnico**
+(o próximo topo/fundo relevante no timeframe do sinal).
+
+Quando a mesma moeda bate **duas estratégias ao mesmo tempo**, o bot manda
+uma única mensagem explicando isso ("bateu 2 estratégias"), com um aviso se
+as duas estratégias sugerirem lados opostos (compra x venda) — em vez de
+duas mensagens cheias repetidas, que davam a impressão de "operação
+clonada".
+
+**BTC e ETH também ganharam uma mensagem curta em TODA rodada por hora**
+("⭐ BTC / ETH — STATUS DA RODADA"): mostra o sinal ativo se tiver, ou avisa
+explicitamente "SEM SWING ATIVO agora" junto com os dois cenários (alta e
+baixa, com faixa de preço) — assim BTC nunca fica "escondido" atrás dos
+alertas de outras moedas.
+
+**Importante sobre execuções manuais**: o relatório categorizado completo
+(seção abaixo) só dispara automaticamente pelo relógio — testar manualmente
+perto de um dos 6 horários não empilha mais o relatório inteiro em cima da
+varredura normal e do diagnóstico, o que antes deixava a execução manual
+bem mais pesada e demorada.
+
 ## Relatório categorizado (6x por dia)
 
 Além dos alertas soltos de cada sinal, o bot manda um relatório organizado
