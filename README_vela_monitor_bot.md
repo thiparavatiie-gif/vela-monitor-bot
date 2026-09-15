@@ -125,13 +125,18 @@ detalhe isolado de um sinal específico:
   mirar só 1% de lucro) não é enviado — mensagem por mensagem, o lucro
   precisa compensar o risco, senão não vale a entrada mesmo acertando
   menos da metade das vezes.
-- **Tendência majoritária do mercado** — calculada a partir do BTC no
-  diário (EMA50 acima da EMA200, com o preço acima das duas = tendência de
-  alta; o inverso = tendência de baixa; qualquer mistura = neutra, sem
-  filtro) uma vez por rodada, e vale pra todas as moedas. Um sinal de
-  VENDER com o mercado em tendência de alta clara (ou de COMPRAR com o
-  mercado em tendência de baixa) é suprimido — "remar contra a maré" tende
-  a dar errado mesmo quando o setup técnico local parece certo.
+- **Tendência majoritária do mercado, cruzando 3 tempos gráficos** —
+  calculada a partir do BTC no **diário, semanal e mensal** (cada um com
+  seu próprio par de EMAs) uma vez por rodada, e vale pra todas as moedas.
+  O diário dá o veredito ("alta" se preço e EMA rápida estão acima da EMA
+  lenta; "baixa" no inverso); o semanal e o mensal precisam CONCORDAR com
+  ele — se um dos dois discordar, o resultado vira "neutra" (sem filtro).
+  Isso segue o que o Diego explica nos vídeos: "você nunca vai querer
+  shortar um ativo que está numa tendência de alta em todos os tempos
+  gráficos" (e o inverso pra topo). Um sinal de VENDER com o mercado em
+  tendência de alta (ou de COMPRAR com o mercado em tendência de baixa) é
+  suprimido — "remar contra a maré" tende a dar errado mesmo quando o setup
+  técnico local parece certo.
 
 Um sinal suprimido por qualquer um dos dois não simplesmente some: ele vira
 uma linha no diagnóstico ("bateu os critérios técnicos de X, mas..."),
@@ -183,6 +188,52 @@ cenários "vários indicadores batendo ao mesmo tempo" que antes passavam
 batido — incluindo leituras como "suporte no 4h + 5m em sobrevenda extrema
 + suporte também no 1h".
 
+## Cardápio de trade: sinais separados de 5m (day trade) e 1h (swing)
+
+O sinal de "Cascata de RSI" antigo exigia RSI de 15m **e** de 1h em zona de
+extremo ao mesmo tempo. Depois de revisar um vídeo do Diego sobre o
+"cardápio de trade" dele, isso virou **dois sinais independentes**, por
+tempo gráfico, cada um disparando só no **primeiro toque** do RSI na zona
+de extremo (o RSI acabou de cruzar pra dentro da zona nesta vela — não
+estava lá na vela anterior). Isso evita repetir o mesmo aviso vela após
+vela enquanto o RSI continua esticado no mesmo movimento:
+
+- **Primeiro toque no 5m** (`SCALP_5M_RSI_OVERSOLD`/`OVERBOUGHT`, 30/70) —
+  janela **rápida** de repique/correção (day trade), não troca de
+  tendência maior.
+- **Primeiro toque no 1h** (`SCALP_1H_RSI_OVERSOLD`/`OVERBOUGHT`, 31/69 —
+  o Diego comenta um alarme de RSI em ~31 configurado no 1h) — tratado como
+  ponto de entrada de **swing**, porque tende a coincidir com o diário
+  formando uma base de preço quando os tempos gráficos maiores estão
+  alinhados na mesma direção.
+
+Os dois passam pelos mesmos filtros de qualidade de todo sinal (risco/
+retorno mínimo de 1:2 e tendência majoritária do mercado).
+
+## Tendência em 3 tempos gráficos (diário + semanal + mensal)
+
+O filtro de tendência majoritária do mercado (ver seção de filtros acima)
+agora cruza o BTC em **três** tempos gráficos em vez de só o diário — o
+mesmo princípio que o Diego repete nos vídeos: "você nunca vai querer
+shortar um ativo que está numa tendência de alta em todos os tempos
+gráficos" (e vice-versa pra topo). O diário continua sendo quem dá o
+veredito; o semanal e o mensal precisam concordar com ele, senão o
+resultado vira "neutra" (sem filtro).
+
+## Alvo maior em rompimento de range longo
+
+O sinal de "Mercado em consolidação / range" (ver `check_range_market`) só
+olhava pra `RANGE_LOOKBACK` candles fixos pra achar a faixa e sempre mirava
+a borda oposta como alvo. Agora, seguindo o "padrão de equilíbrio" do
+Diego — **"quanto mais tempo lateralizado, maior o impulso durante o
+rompimento"** — o bot olha além dessa janela mínima pra ver há quanto tempo
+o preço já está realmente contido na mesma faixa (até um teto de
+`RANGE_BREAKOUT_MAX_LOOKBACK_MULT` vezes a janela mínima). Se a
+consolidação já dura bem mais que o mínimo, o título vira "Rompimento de
+range longo" e o alvo estende além da borda oposta — proporcional ao tempo
+extra lateralizado, com um teto (`RANGE_BREAKOUT_EXTENSION_CAP`) pra não
+virar um alvo fantasioso numa consolidação muito longa.
+
 ## Mensagens mais diretas: checklist, alvo e sem duplicidade
 
 Cada alerta de sinal agora vem no formato de **"cartão de operação"** — o
@@ -192,21 +243,23 @@ pra ler em poucos segundos:
 ```
 VELA MONITOR
 
-🟢 COMPRAR AGORA — BTC/USDT (Pullback (alta, 67.000 → 82.283))
+🟢 COMPRAR AGORA — BTC (Pullback (alta, 67.000 → 82.283))
 ────────────────────────
-📍 Entrada: a mercado
-🛑 Stop sugerido: 74.500
+📍 Entrada: A mercado — ponto técnico específico, não precisa fracionar.
+🔴 Stop corretora: 74.500
 🎯 Alvos: 82.283 > 86.440 > 91.728
+   (bateu um alvo: considere realizar parcial e segurar o resto — swing
+   pensa no lucro a longo prazo, não precisa sair tudo de uma vez)
 📊 Risco/retorno: 1:2.5
 💡 Corrigiu ao 0.382 da perna 67.000→82.283 (76.445) com fundos ascendentes e o 4h confirmou.
 💰 Preço agora: 76.720
 
-🧠 O BTC/USDT vem recuando desde a máxima de 82.283, testando a região de
+🧠 O BTC vem recuando desde a máxima de 82.283, testando a região de
 76.445 após a perna 67.000 → 82.283. Corrigiu até a zona de Fibonacci
 0.382 dessa perna com fundos ascendentes confirmando no 4h — o pullback
 confirmado sugere possível retomada da tendência de alta vigente.
 
-⚠️ Alerta: Volume atual está 55% da média — volume abaixo da média
+🚨 Alerta: Volume atual está 55% da média — volume abaixo da média
 enfraquece o setup.
 
 Checklist:
@@ -215,15 +268,23 @@ Checklist:
   ❌ Volume no candle atual acima da média
 ```
 
-📍 entrada, 🛑 stop, 🎯 alvo (ou os 3 alvos progressivos, só no pullback),
-📊 o risco/retorno calculado (ver seção de filtros acima), 💡 o motivo
-técnico resumido numa linha, 💰 o preço agora, 🧠 um parágrafo de contexto
-mais completo (o que o preço andou fazendo, não só o critério que bateu),
-⚠️ um alerta quando tiver algo que enfraquece o setup, e o **checklist**
-(✅/❌) do que confirmou aquele setup (RSI, volume, estrutura, e a EMA21
-como item extra de contexto) fechando a mensagem. Os sinais de clímax de
-exaustão e cascata de scalp, que antes só davam stop, agora também trazem
-um **alvo técnico** (o próximo topo/fundo relevante no timeframe do sinal).
+📍 **entrada** — não é sempre "a mercado": quando o próprio sinal já mira
+uma ZONA (bottom fishing e reversão com base, que miram um range de fundos
+ascendentes), o texto muda pra "fracionada (compra escalonada) entre X e
+Y", sugerindo montar a posição aos poucos em vez de tudo de uma vez; scalp
+(5m) pede urgência, porque a janela é curta. 🔴 **stop da corretora**. 🎯
+**alvo** (ou os 3 alvos progressivos, só no pullback — com a nota de
+realizar parcial/segurar o resto, porque bater o primeiro alvo num swing
+não significa que a operação acabou). 📊 o risco/retorno calculado (ver
+seção de filtros acima), 💡 o motivo técnico resumido numa linha, 💰 o
+preço agora, 🧠 um parágrafo de contexto mais completo (o que o preço andou
+fazendo, não só o critério que bateu), 🚨 um alerta quando tiver algo que
+enfraquece o setup, e o **checklist** (✅/❌) do que confirmou aquele setup
+(RSI, volume, estrutura, e a EMA21 como item extra de contexto) fechando a
+mensagem. Os sinais de clímax de exaustão e primeiro toque de RSI (5m/1h),
+que antes só davam stop, agora também trazem um **alvo técnico** (o
+próximo topo/fundo relevante no
+timeframe do sinal).
 
 Quando a mesma moeda bate **duas estratégias ao mesmo tempo**, o bot manda
 uma única mensagem explicando isso ("bateu 2 estratégias"), com um aviso se

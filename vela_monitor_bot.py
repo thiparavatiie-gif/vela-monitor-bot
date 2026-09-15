@@ -12,10 +12,18 @@
 #      <=15) junto com volume muito acima da média no 4h: costuma marcar
 #      topo ou fundo de um movimento.
 #
-#   3) CASCATA DE RSI (scalp) — RSI em sobrevenda/sobrecompra ao mesmo
-#      tempo no 15m E no 1h: a ideia da "cascata fractal" do canal, onde a
-#      sobrevenda/sobrecompra nos tempos curtos antecede um repique/correção
-#      rápida antes mesmo do diário se mexer.
+#   3) PRIMEIRO TOQUE DE RSI EM ZONA DE EXTREMO (5m = day trade, 1h = swing)
+#      — o "cardápio de trade" do Diego: dois sinais SEPARADOS (não uma
+#      condição conjunta), cada um disparando só no PRIMEIRO toque do RSI
+#      na zona de extremo (o RSI cruzou pra dentro da zona nesta vela, não
+#      estava lá na vela anterior — assim não repete o mesmo aviso vela
+#      após vela enquanto o RSI continua esticado). Primeiro toque no 5m
+#      depois de um movimento forte = janela rápida de repique/correção
+#      (day trade). Primeiro toque no 1h = ponto de entrada de SWING,
+#      porque tende a coincidir com o diário formando uma base de preço
+#      quando os tempos gráficos maiores estão alinhados na mesma direção
+#      (o Diego comenta que deixa um alarme de RSI em ~31 configurado no 1h
+#      justamente pra pegar esse momento).
 #
 #   4) BOTTOM FISHING (posição) — moeda muito abaixo (55%+) da própria máxima
 #      HISTÓRICA e formando fundos ascendentes no diário, indicando possível
@@ -55,7 +63,12 @@
 #      operar o próprio range: comprar perto do fundo mirando o topo, ou
 #      vender perto do topo mirando o fundo, com stop logo fora da faixa. É
 #      o "o que fazer quando o mercado fica parado", em vez de ficar sem
-#      nenhuma ideia quando não tem uma tendência definida.
+#      nenhuma ideia quando não tem uma tendência definida. Alvo segue o
+#      "padrão de equilíbrio" do Diego — "quanto mais tempo lateralizado,
+#      maior o impulso no rompimento": se o preço já está contido nessa
+#      faixa por bem mais tempo que o mínimo exigido, o alvo estende além
+#      da borda oposta (proporcional ao tempo extra, com teto), em vez de
+#      mirar sempre só a borda oposta.
 #
 #   9) CONFLUÊNCIA MULTI-INDICADOR (mais de um timeframe) — em vez de exigir
 #      só UM critério isolado, soma quantos fatores técnicos diferentes
@@ -78,12 +91,18 @@
 #      o dobro da distância até o stop. Sinal que bate o critério técnico
 #      mas fica abaixo disso é suprimido (não é enviado), e vira um
 #      diagnóstico explicando o motivo.
-#   b) Tendência majoritária do mercado — calculada a partir do BTC no
-#      diário (EMA50 e EMA200) uma vez por rodada. Sinal de VENDER com o
-#      mercado em tendência de alta clara (ou de COMPRAR com o mercado em
-#      tendência de baixa clara) é suprimido pelo mesmo motivo — "remar
-#      contra a maré" tende a dar errado mesmo quando o setup local parece
-#      certo. Mercado sem tendência clara (neutro) não filtra nada.
+#   b) Tendência majoritária do mercado — calculada a partir do BTC,
+#      cruzando 3 tempos gráficos (diário, semanal e mensal, cada um com
+#      seu próprio par de EMAs) uma vez por rodada: só vira "alta" ou
+#      "baixa" quando o diário dá o veredito E nenhum dos tempos gráficos
+#      maiores discorda dele — do jeito que o Diego explica nos vídeos,
+#      "você nunca vai querer shortar um ativo que está numa tendência de
+#      alta em todos os tempos gráficos" (e vice-versa). Sinal de VENDER
+#      com o mercado em tendência de alta (ou de COMPRAR com o mercado em
+#      tendência de baixa) é suprimido pelo mesmo motivo — "remar contra a
+#      maré" tende a dar errado mesmo quando o setup local parece certo.
+#      Mercado sem tendência clara, ou com os tempos gráficos discordando
+#      entre si (neutro) não filtra nada.
 #
 #  Cada mensagem de sinal vem com um checklist (✅/❌) dos itens que
 #  confirmaram aquele setup (RSI, volume, estrutura, EMA de contexto) e,
@@ -212,9 +231,18 @@ CLIMAX_VOLUME_RATIO = 2.0
 # --- EMA usada só como item extra do checklist (contexto, não filtro) ---
 EMA_TREND_PERIOD = 21
 
-# --- Cascata de RSI (scalp) ---
+# --- Primeiro toque de RSI em zona de extremo (SIGNAL 3), separado por
+# tempo gráfico — cardápio de trade do Diego: primeiro toque no 5m = repique
+# rápido de day trade; primeiro toque no 1h = entrada de swing (porque tende
+# a coincidir com o diário formando base, quando os tempos maiores estão
+# alinhados). Mantém os nomes antigos (SCALP_RSI_*) como os limiares do 5m
+# pra não quebrar nada que ainda os referencie.
 SCALP_RSI_OVERSOLD = 30
 SCALP_RSI_OVERBOUGHT = 70
+SCALP_5M_RSI_OVERSOLD = SCALP_RSI_OVERSOLD
+SCALP_5M_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT
+SCALP_1H_RSI_OVERSOLD = 31     # o Diego comenta um alarme de RSI ~31 no 1h
+SCALP_1H_RSI_OVERBOUGHT = 69
 
 # --- Bottom fishing (posição) — drawdown profundo desde a máxima histórica ---
 BOTTOM_FISHING_MIN_DRAWDOWN = 0.55   # pelo menos 55% abaixo da máxima histórica
@@ -264,6 +292,15 @@ FAILED_BREAK_VOLUME_RATIO = 1.3        # volume mínimo (x média) no rompimento
 RANGE_LOOKBACK = 20          # candles de 4h (~3,3 dias) usados pra definir o range
 RANGE_MAX_PCT = 0.05         # até 5% de amplitude entre topo e fundo = mercado "parado"
 RANGE_EDGE_ZONE_PCT = 0.25   # % da faixa (a partir de cada borda) considerada zona de entrada
+# "Quanto mais tempo lateralizado, maior o impulso durante o rompimento" (padrão
+# de equilíbrio do Diego) — depois de achar o range nos últimos RANGE_LOOKBACK
+# candles, olha pra trás mais um pouco (até RANGE_BREAKOUT_MAX_LOOKBACK_MULT x
+# RANGE_LOOKBACK no total) pra ver há quanto tempo o preço já está contido
+# nessa mesma faixa, e usa isso pra dar um alvo mais ambicioso que só a borda
+# oposta — capado em RANGE_BREAKOUT_EXTENSION_CAP x a altura do range.
+RANGE_BREAKOUT_MAX_LOOKBACK_MULT = 4
+RANGE_BREAKOUT_EXTENSION_CAP = 1.5
+RANGE_BREAKOUT_EDGE_TOLERANCE = 0.5   # tolerância extra (x RANGE_MAX_PCT) pra não cortar por um pavio isolado
 
 # --- Confluência multi-indicador (SINAL 9) — em vez de exigir só UM
 # critério isolado, soma quantos fatores técnicos diferentes (fibonacci em
@@ -684,6 +721,14 @@ def ascending_or_descending_bottoms(leg, pivot_highs, pivot_lows, min_count=MIN_
 MIN_REWARD_RISK_RATIO = 2.0   # lucro no alvo tem que ser pelo menos 2x o risco do stop
 MARKET_TREND_EMA_FAST = 50
 MARKET_TREND_EMA_SLOW = 200
+# Semanal tem histórico de sobra (Binance BTCUSDT desde 2017 = ~470 candles
+# semanais) pra usar o mesmo par EMA50/EMA200 do diário. Mensal não tem
+# histórico suficiente pra EMA200 (só ~100 candles desde 2017), então usa um
+# par mais curto — ainda assim reflete a tendência de mais longo prazo.
+MARKET_TREND_WEEKLY_EMA_FAST = MARKET_TREND_EMA_FAST
+MARKET_TREND_WEEKLY_EMA_SLOW = MARKET_TREND_EMA_SLOW
+MARKET_TREND_MONTHLY_EMA_FAST = 6
+MARKET_TREND_MONTHLY_EMA_SLOW = 18
 
 
 def _reward_risk_ok(entry, alvo, stop, min_ratio=MIN_REWARD_RISK_RATIO):
@@ -698,18 +743,17 @@ def _reward_risk_ok(entry, alvo, stop, min_ratio=MIN_REWARD_RISK_RATIO):
     return ratio >= min_ratio, ratio
 
 
-def detect_market_trend(candles_d):
+def _trend_from_candles(candles, ema_fast_period, ema_slow_period):
     """
-    Tendência majoritária do mercado a partir do BTC no diário: preço e
-    EMA50 alinhados acima da EMA200 = tendência de alta; o inverso =
-    tendência de baixa; qualquer combinação misturada = neutra (sem
-    tendência clara o suficiente pra filtrar nada).
+    Tendência num único tempo gráfico: preço e EMA rápida alinhados acima
+    da EMA lenta = "alta"; o inverso = "baixa"; qualquer combinação
+    misturada (ou dado insuficiente) = "neutra".
     """
-    if len(candles_d) < MARKET_TREND_EMA_SLOW + 5:
+    if len(candles) < ema_slow_period + 5:
         return "neutra"
-    closes = [c["close"] for c in candles_d]
-    ema_fast = compute_ema(closes, MARKET_TREND_EMA_FAST)
-    ema_slow = compute_ema(closes, MARKET_TREND_EMA_SLOW)
+    closes = [c["close"] for c in candles]
+    ema_fast = compute_ema(closes, ema_fast_period)
+    ema_slow = compute_ema(closes, ema_slow_period)
     if ema_fast is None or ema_slow is None:
         return "neutra"
     price_now = closes[-1]
@@ -717,6 +761,41 @@ def detect_market_trend(candles_d):
         return "alta"
     if price_now < ema_fast < ema_slow:
         return "baixa"
+    return "neutra"
+
+
+def detect_market_trend(candles_d, candles_w=None, candles_m=None):
+    """
+    Tendência majoritária do mercado a partir do BTC, cruzando os 3 tempos
+    gráficos maiores — diário, semanal e mensal — do jeito que o Diego
+    explica nos vídeos: "você nunca vai querer shortar um ativo que está
+    numa tendência de alta em todos os tempos gráficos" (e vice-versa).
+
+    O diário é a referência (é o que dá o veredito "alta"/"baixa"); o
+    semanal e o mensal são usados pra CONFIRMAR — se um deles discordar do
+    diário, o resultado vira "neutra" (o filtro de tendência não trava
+    nada quando os tempos gráficos maiores não estão alinhados). Um tempo
+    gráfico sem dado suficiente (ex.: mensal muito curto) não derruba o
+    alinhamento sozinho — só entra na conta quando realmente deu um
+    veredito.
+
+    Compatível com a chamada antiga (só `candles_d`): nesse caso volta a
+    ser só a leitura do diário.
+    """
+    trend_d = _trend_from_candles(candles_d, MARKET_TREND_EMA_FAST, MARKET_TREND_EMA_SLOW)
+    if candles_w is None and candles_m is None:
+        return trend_d
+
+    trend_w = (_trend_from_candles(candles_w, MARKET_TREND_WEEKLY_EMA_FAST, MARKET_TREND_WEEKLY_EMA_SLOW)
+               if candles_w else "neutra")
+    trend_m = (_trend_from_candles(candles_m, MARKET_TREND_MONTHLY_EMA_FAST, MARKET_TREND_MONTHLY_EMA_SLOW)
+               if candles_m else "neutra")
+
+    if trend_d == "neutra":
+        return "neutra"
+    votos_com_veredito = [t for t in (trend_w, trend_m) if t != "neutra"]
+    if all(v == trend_d for v in votos_com_veredito):
+        return trend_d
     return "neutra"
 
 
@@ -922,63 +1001,116 @@ def check_exhaustion_climax(symbol, candles):
 
 
 # ----------------------------------------------------------------------------
-# SINAL 3 — CASCATA DE RSI (scalp)
+# SINAL 3 — PRIMEIRO TOQUE DE RSI EM ZONA DE EXTREMO (5m = day trade rápido,
+# 1h = entrada de swing) — "cardápio de trade" do Diego
 # ----------------------------------------------------------------------------
+#
+# Antes esse sinal exigia RSI de 15m E 1h em extremo AO MESMO TEMPO (cascata
+# fractal). O vídeo do Diego sobre o "cardápio de trade" deixa claro que na
+# prática ele usa isso como DOIS sinais separados, por tempo gráfico: o
+# primeiro toque do RSI de 5 minutos em zona de extremo depois de um
+# movimento forte é uma janela rápida de repique/correção (day trade); o
+# primeiro toque do RSI de 1 hora é o que ele trata como ponto de entrada de
+# SWING, porque tende a coincidir com o diário formando uma base de preço
+# quando os tempos gráficos maiores estão alinhados na mesma direção — daí
+# ele deixar um alarme de RSI em ~31 configurado no 1h.
+#
+# "Primeiro toque" = o RSI cruzou pra dentro da zona de extremo NESTA vela
+# (não estava lá na vela anterior). Isso evita repetir o mesmo sinal vela
+# após vela enquanto o RSI continua esticado no mesmo movimento.
 
-def check_scalp_cascade(symbol, candles_15m, candles_1h):
-    rsi_15m = compute_rsi([c["close"] for c in candles_15m])
-    rsi_1h = compute_rsi([c["close"] for c in candles_1h])
-    if rsi_15m is None or rsi_1h is None:
+def _first_touch_rsi(closes, oversold, overbought):
+    """
+    (lado, rsi_atual) — lado é "sobrevenda"/"sobrecompra" só quando o RSI
+    acabou de ENTRAR na zona de extremo nesta vela (cruzando vindo de fora
+    dela na vela anterior). None se não é o primeiro toque (já estava lá
+    antes, ou nunca entrou).
+    """
+    rsi_now = compute_rsi(closes)
+    rsi_prev = compute_rsi(closes[:-1]) if len(closes) > 1 else None
+    if rsi_now is None or rsi_prev is None:
+        return None, rsi_now
+    if rsi_now <= oversold and rsi_prev > oversold:
+        return "sobrevenda", rsi_now
+    if rsi_now >= overbought and rsi_prev < overbought:
+        return "sobrecompra", rsi_now
+    return None, rsi_now
+
+
+def _build_scalp_touch_signal(symbol, candles, oversold, overbought, timeframe_label,
+                               estilo, titulo_sufixo, stop_pct, explicacao, aviso):
+    closes = [c["close"] for c in candles]
+    lado, rsi_now = _first_touch_rsi(closes, oversold, overbought)
+    if lado is None:
         return None
+    acao = "COMPRAR" if lado == "sobrevenda" else "VENDER"
+    price_now = candles[-1]["close"]
 
-    if rsi_15m <= SCALP_RSI_OVERSOLD and rsi_1h <= SCALP_RSI_OVERSOLD:
-        acao, lado = "COMPRAR", "sobrevenda"
-    elif rsi_15m >= SCALP_RSI_OVERBOUGHT and rsi_1h >= SCALP_RSI_OVERBOUGHT:
-        acao, lado = "VENDER", "sobrecompra"
-    else:
-        return None
-
-    price_now = candles_15m[-1]["close"]
-    pivot_highs_1h, pivot_lows_1h = find_pivots(candles_1h, PIVOT_LEN)
-
+    pivot_highs, pivot_lows = find_pivots(candles, PIVOT_LEN)
     alvo = None
-    if acao == "VENDER" and pivot_lows_1h:
-        alvo = pivot_lows_1h[-1][1]
-    elif acao == "COMPRAR" and pivot_highs_1h:
-        alvo = pivot_highs_1h[-1][1]
+    if acao == "VENDER" and pivot_lows:
+        alvo = pivot_lows[-1][1]
+    elif acao == "COMPRAR" and pivot_highs:
+        alvo = pivot_highs[-1][1]
     if alvo is None:
         return None  # sem alvo técnico pra checar risco/retorno, não dá pra confirmar que vale a entrada
 
-    stop = avoid_round_number_stop(price_now * (1.01 if acao == "VENDER" else 0.99), "venda" if acao == "VENDER" else "compra")
+    stop = avoid_round_number_stop(
+        price_now * (1 + stop_pct if acao == "VENDER" else 1 - stop_pct),
+        "venda" if acao == "VENDER" else "compra",
+    )
 
     detalhes = [
         f"Preço agora: {fmt_price(price_now)}",
-        f"RSI 15m: {rsi_15m:.1f}  |  RSI 1h: {rsi_1h:.1f}",
-        f"Alvo técnico: {fmt_price(alvo)} (último {'fundo' if acao == 'VENDER' else 'topo'} no 1h)",
+        f"RSI {timeframe_label}: {rsi_now:.1f} (primeiro toque em {lado})",
+        f"Alvo técnico: {fmt_price(alvo)} (último {'fundo' if acao == 'VENDER' else 'topo'} no {timeframe_label})",
         f"Stop sugerido: {fmt_price(stop)}",
     ]
 
     checklist = [
-        (f"RSI 15m em {lado} ({rsi_15m:.1f})", True),
-        (f"RSI 1h em {lado} ({rsi_1h:.1f})", True),
+        (f"RSI {timeframe_label} tocou {lado} pela primeira vez nesta vela ({rsi_now:.1f})", True),
     ]
 
     return {
-        "symbol": symbol, "estilo": "SCALP", "acao": acao,
-        "titulo": f"Cascata de RSI — {lado} no 15m e 1h",
-        "timeframe": "15m + 1h",
+        "symbol": symbol, "estilo": estilo, "acao": acao,
+        "titulo": f"Primeiro toque de {lado} no {timeframe_label} — {titulo_sufixo}",
+        "timeframe": timeframe_label,
         "detalhes": detalhes,
         "checklist": checklist,
         "entry_price": price_now, "target_price": alvo, "stop_price": stop,
-        "resumo": f"RSI em {lado} ao mesmo tempo no 15m ({rsi_15m:.1f}) e no 1h ({rsi_1h:.1f}) — cascata fractal.",
-        "explicacao": (
-            "Os dois timeframes curtos em " + lado + " ao mesmo tempo — pela lógica "
-            "da cascata fractal, isso tende a antecipar um repique/correção rápida "
-            "antes mesmo do timeframe diário reagir. Sinal de movimento curto, não "
-            "de mudança de tendência maior."
-        ),
-        "aviso": "Sinal de scalp: movimento rápido, use gestão de risco mais apertada.",
+        "resumo": f"Primeiro toque do RSI de {timeframe_label} em {lado} ({rsi_now:.1f}).",
+        "explicacao": explicacao(lado),
+        "aviso": aviso,
     }
+
+
+def check_scalp_5m(symbol, candles_5m):
+    return _build_scalp_touch_signal(
+        symbol, candles_5m, SCALP_5M_RSI_OVERSOLD, SCALP_5M_RSI_OVERBOUGHT, "5m",
+        estilo="SCALP", titulo_sufixo="repique rápido", stop_pct=0.006,
+        explicacao=lambda lado: (
+            f"Primeiro toque do RSI de 5 minutos em {lado} depois de um movimento "
+            "forte — pelo 'cardápio de trade' do Diego, isso costuma abrir uma "
+            "janela curta de repique/correção rápida, não uma troca de tendência "
+            "maior. Só vale o PRIMEIRO toque: se o RSI já está esticado há várias "
+            "velas, a parte rápida do movimento pode já ter passado."
+        ),
+        aviso="Sinal de day trade muito rápido — janela curta, use gestão de risco apertada.",
+    )
+
+
+def check_scalp_1h(symbol, candles_1h):
+    return _build_scalp_touch_signal(
+        symbol, candles_1h, SCALP_1H_RSI_OVERSOLD, SCALP_1H_RSI_OVERBOUGHT, "1h",
+        estilo="SWING", titulo_sufixo="entrada de swing", stop_pct=0.015,
+        explicacao=lambda lado: (
+            f"Primeiro toque do RSI de 1 hora em {lado} — diferente do toque de 5m "
+            "(que é só repique rápido), esse costuma coincidir com o diário formando "
+            "uma base de preço quando os tempos gráficos maiores estão alinhados na "
+            "mesma direção, o que dá mais peso pra uma entrada de swing."
+        ),
+        aviso=None,
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -1048,6 +1180,7 @@ def check_bottom_fishing(symbol, candles_d, candles_w, tier=None):
         "detalhes": detalhes,
         "checklist": checklist,
         "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "entry_zone": (entry_low, entry_high),
         "resumo": f"{drawdown * 100:.0f}% abaixo da máxima histórica ({fmt_price(ath)}) com fundos ascendentes confirmando no diário.",
         "explicacao": (
             f"Moeda {drawdown * 100:.0f}% abaixo da máxima histórica e formando fundos "
@@ -1124,6 +1257,7 @@ def check_light_reversal(symbol, candles_d, tier=None):
         "detalhes": detalhes,
         "checklist": checklist,
         "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "entry_zone": (entry_low, entry_high),
         "resumo": f"Correção de {drawdown * 100:.0f}% desde o topo dos últimos {lookback}d ({fmt_price(swing_high_price)}) com fundos ascendentes formando base.",
         "explicacao": (
             f"Correção de {drawdown * 100:.0f}% desde o topo dos últimos {lookback} dias, "
@@ -1386,6 +1520,31 @@ def check_cycle_phase(btc_return, avg_alt_return):
 # SINAL 8 — MERCADO EM CONSOLIDAÇÃO / RANGE (swing curto)
 # ----------------------------------------------------------------------------
 
+def _range_consolidation_duration(candles, range_high, range_low):
+    """
+    Quantos candles, no total (incluindo os RANGE_LOOKBACK que definiram o
+    range), o preço já passou contido nessa mesma faixa — olhando pra trás
+    além da janela original, até um teto de RANGE_BREAKOUT_MAX_LOOKBACK_MULT
+    x RANGE_LOOKBACK. Uma tolerância pequena evita cortar a contagem por um
+    único pavio isolado que escapou da faixa por muito pouco.
+    """
+    tol = RANGE_MAX_PCT * RANGE_BREAKOUT_EDGE_TOLERANCE
+    high_tol = range_high * (1 + tol)
+    low_tol = range_low * (1 - tol)
+    max_extra = RANGE_LOOKBACK * (RANGE_BREAKOUT_MAX_LOOKBACK_MULT - 1)
+
+    extra = 0
+    idx = len(candles) - RANGE_LOOKBACK - 1
+    while extra < max_extra and idx >= 0:
+        c = candles[idx]
+        if c["high"] <= high_tol and c["low"] >= low_tol:
+            extra += 1
+            idx -= 1
+        else:
+            break
+    return RANGE_LOOKBACK + extra
+
+
 def check_range_market(symbol, candles):
     """
     "O que fazer quando o mercado fica parado": em vez de precisar de uma
@@ -1395,6 +1554,12 @@ def check_range_market(symbol, candles):
     fundo mirando o topo, ou vender perto do topo mirando o fundo — com stop
     logo fora da faixa. Só dispara perto das bordas: no meio do range não
     tem um ponto de entrada com risco/retorno bom.
+
+    O alvo não é sempre só a borda oposta: segue o "padrão de equilíbrio" do
+    Diego — quanto mais tempo o preço ficou realmente lateralizado nessa
+    faixa (olhando além da janela mínima), maior o impulso esperado no
+    rompimento, e o alvo estende além da borda oposta proporcionalmente
+    (capado, pra não virar alvo fantasioso numa consolidação muito longa).
     """
     if len(candles) < RANGE_LOOKBACK:
         return None
@@ -1410,14 +1575,21 @@ def check_range_market(symbol, candles):
     price_now = candles[-1]["close"]
     posicao = (price_now - range_low) / (range_high - range_low)
 
+    duracao = _range_consolidation_duration(candles, range_high, range_low)
+    duracao_mult = duracao / RANGE_LOOKBACK
+    extensao_mult = min(duracao_mult - 1, RANGE_BREAKOUT_EXTENSION_CAP)
+    range_height = range_high - range_low
+    alvo_extra = range_height * extensao_mult
+    range_longo = duracao > RANGE_LOOKBACK  # achou consolidação além da janela mínima
+
     if posicao <= RANGE_EDGE_ZONE_PCT:
         acao, lado_txt = "COMPRAR", "perto do fundo do range"
         stop = avoid_round_number_stop(range_low * 0.995, "compra")
-        alvo = range_high
+        alvo = range_high + alvo_extra
     elif posicao >= (1 - RANGE_EDGE_ZONE_PCT):
         acao, lado_txt = "VENDER", "perto do topo do range"
         stop = avoid_round_number_stop(range_high * 1.005, "venda")
-        alvo = range_low
+        alvo = range_low - alvo_extra
     else:
         return None  # parado, mas no meio da faixa — sem ponto de entrada bom agora
 
@@ -1425,26 +1597,41 @@ def check_range_market(symbol, candles):
         (f"Faixa estreita nos últimos {RANGE_LOOKBACK} candles ({range_pct * 100:.1f}% ≤ {RANGE_MAX_PCT * 100:.0f}%)", True),
         (f"Preço {lado_txt}", True),
     ]
+    if range_longo:
+        checklist.append((f"Lateralizado há mais tempo ({duracao} candles, {duracao_mult:.1f}x a janela mínima) — alvo estendido", True))
+
+    titulo = ("Rompimento de range longo — operação de range" if range_longo
+              else "Mercado em consolidação — operação de range")
+    alvo_txt = (f"Alvo (borda oposta + extensão por consolidação longa): {fmt_price(alvo)}" if range_longo
+                else f"Alvo (borda oposta do range): {fmt_price(alvo)}")
 
     return {
         "symbol": symbol, "estilo": "RANGE", "acao": acao,
-        "titulo": "Mercado em consolidação — operação de range",
+        "titulo": titulo,
         "timeframe": INTERVAL,
         "detalhes": [
             f"Preço agora: {fmt_price(price_now)} ({lado_txt})",
             f"Range dos últimos {RANGE_LOOKBACK} candles: {fmt_price(range_low)} – {fmt_price(range_high)} "
             f"({range_pct * 100:.1f}% de amplitude)",
-            f"Alvo (borda oposta do range): {fmt_price(alvo)}",
+            f"Tempo lateralizado: {duracao} candles ({duracao_mult:.1f}x a janela mínima de {RANGE_LOOKBACK})",
+            alvo_txt,
             f"Stop sugerido: {fmt_price(stop)}",
         ],
         "checklist": checklist,
         "entry_price": price_now, "target_price": alvo, "stop_price": stop,
-        "resumo": f"Mercado em range ({range_pct * 100:.1f}% de amplitude), preço {lado_txt}.",
+        "resumo": (
+            f"Mercado em range ({range_pct * 100:.1f}% de amplitude, {duracao} candles lateralizado), preço {lado_txt}."
+        ),
         "explicacao": (
             f"Sem tendência clara — os últimos candles ficaram comprimidos numa faixa "
-            f"estreita ({range_pct * 100:.1f}% de amplitude). Quando não tem direção "
-            f"definida, a ideia é operar o próprio range: entrar perto de uma borda "
-            f"mirando a borda oposta, com stop logo fora dela."
+            f"estreita ({range_pct * 100:.1f}% de amplitude) há {duracao} candles "
+            f"({duracao_mult:.1f}x a janela mínima de {RANGE_LOOKBACK}). Quando não tem "
+            f"direção definida, a ideia é operar o próprio range: entrar perto de uma "
+            f"borda mirando a borda oposta, com stop logo fora dela."
+            + (f" Como a consolidação já dura bem mais que o mínimo, o alvo estende "
+               f"{extensao_mult:.1f}x a altura do range além da borda oposta — quanto mais "
+               f"tempo lateralizado, maior tende a ser o impulso no rompimento."
+               if range_longo else "")
         ),
         "aviso": (
             "Setup de range tende a ter alvo e risco menores que um movimento de "
@@ -1787,36 +1974,46 @@ def diagnose_exhaustion(candles):
     }
 
 
-def diagnose_scalp(rsi_15m, rsi_1h):
-    if rsi_15m is None or rsi_1h is None:
+def _diagnose_scalp_touch(rsi, oversold, overbought, tipo_label, tf_label):
+    """
+    Diagnóstico genérico pro primeiro-toque de RSI: só dispara quando o RSI
+    ainda está FORA da zona de extremo mas perto dela (então o próximo
+    cruzamento pra dentro seria, por definição, um primeiro toque). Se o RSI
+    já está dentro da zona, não diagnostica — ou já virou sinal de verdade
+    (é o primeiro toque), ou já passou do primeiro toque (não vale mais o
+    diagnóstico de "quase lá").
+    """
+    if rsi is None:
         return None
-    if rsi_15m <= SCALP_RSI_OVERSOLD and rsi_1h <= SCALP_RSI_OVERSOLD:
-        return None  # já teria virado sinal de verdade
-    if rsi_15m >= SCALP_RSI_OVERBOUGHT and rsi_1h >= SCALP_RSI_OVERBOUGHT:
+    if rsi <= oversold or rsi >= overbought:
         return None
-    algum_sobrevenda = rsi_15m <= SCALP_RSI_OVERSOLD or rsi_1h <= SCALP_RSI_OVERSOLD
-    outro_perto_sobrevenda = (rsi_15m <= SCALP_RSI_OVERSOLD + SCALP_DIAG_RSI_BAND
-                               and rsi_1h <= SCALP_RSI_OVERSOLD + SCALP_DIAG_RSI_BAND)
-    if algum_sobrevenda and outro_perto_sobrevenda:
-        dist = max(abs(rsi_15m - SCALP_RSI_OVERSOLD), abs(rsi_1h - SCALP_RSI_OVERSOLD))
+    if rsi <= oversold + SCALP_DIAG_RSI_BAND:
+        dist = rsi - oversold
         return {
-            "tipo": "Cascata de RSI",
+            "tipo": tipo_label,
             "score": dist / SCALP_DIAG_RSI_BAND,
-            "texto": (f"Cascata scalp (sobrevenda): RSI 15m {rsi_15m:.0f} / RSI 1h "
-                      f"{rsi_1h:.0f} — só falta o outro timeframe confirmar."),
+            "texto": (f"{tipo_label} (sobrevenda): RSI {tf_label} em {rsi:.0f}, chegando perto "
+                      f"do primeiro toque de sobrevenda (~{oversold:.0f})."),
         }
-    algum_sobrecompra = rsi_15m >= SCALP_RSI_OVERBOUGHT or rsi_1h >= SCALP_RSI_OVERBOUGHT
-    outro_perto_sobrecompra = (rsi_15m >= SCALP_RSI_OVERBOUGHT - SCALP_DIAG_RSI_BAND
-                                and rsi_1h >= SCALP_RSI_OVERBOUGHT - SCALP_DIAG_RSI_BAND)
-    if algum_sobrecompra and outro_perto_sobrecompra:
-        dist = max(abs(SCALP_RSI_OVERBOUGHT - rsi_15m), abs(SCALP_RSI_OVERBOUGHT - rsi_1h))
+    if rsi >= overbought - SCALP_DIAG_RSI_BAND:
+        dist = overbought - rsi
         return {
-            "tipo": "Cascata de RSI",
+            "tipo": tipo_label,
             "score": dist / SCALP_DIAG_RSI_BAND,
-            "texto": (f"Cascata scalp (sobrecompra): RSI 15m {rsi_15m:.0f} / RSI 1h "
-                      f"{rsi_1h:.0f} — só falta o outro timeframe confirmar."),
+            "texto": (f"{tipo_label} (sobrecompra): RSI {tf_label} em {rsi:.0f}, chegando perto "
+                      f"do primeiro toque de sobrecompra (~{overbought:.0f})."),
         }
     return None
+
+
+def diagnose_scalp_5m(rsi_5m):
+    return _diagnose_scalp_touch(rsi_5m, SCALP_5M_RSI_OVERSOLD, SCALP_5M_RSI_OVERBOUGHT,
+                                  "Primeiro toque 5m", "5m")
+
+
+def diagnose_scalp_1h(rsi_1h):
+    return _diagnose_scalp_touch(rsi_1h, SCALP_1H_RSI_OVERSOLD, SCALP_1H_RSI_OVERBOUGHT,
+                                  "Primeiro toque 1h", "1h")
 
 
 def diagnose_bottom_fishing(candles_d, candles_w):
@@ -2018,22 +2215,32 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         except Exception:
             pass
 
-    rsi_15m = rsi_1h = None
-    if candles_15m and candles_1h:
+    rsi_5m = rsi_1h = None
+    if candles_5m:
         try:
-            sig = check_scalp_cascade(symbol, candles_15m, candles_1h)
+            sig = check_scalp_5m(symbol, candles_5m)
             if sig:
                 sinais_ativos.append(sig)
         except Exception:
             pass
+        rsi_5m = compute_rsi([c["close"] for c in candles_5m])
+
+    if candles_1h:
+        try:
+            sig = check_scalp_1h(symbol, candles_1h)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
+        rsi_1h = compute_rsi([c["close"] for c in candles_1h])
+
+    if candles_15m and candles_1h:
         try:
             sig = check_confluence(symbol, candles_4h, candles_15m, candles_1h, candles_5m)
             if sig:
                 sinais_ativos.append(sig)
         except Exception:
             pass
-        rsi_15m = compute_rsi([c["close"] for c in candles_15m])
-        rsi_1h = compute_rsi([c["close"] for c in candles_1h])
 
     if candles_d and candles_w:
         for fn in (check_bottom_fishing, check_light_reversal):
@@ -2049,7 +2256,8 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         diagnose_exhaustion(candles_4h),
         diagnose_failed_break(candles_4h),
         diagnose_range_market(candles_4h),
-        diagnose_scalp(rsi_15m, rsi_1h) if (rsi_15m is not None and rsi_1h is not None) else None,
+        diagnose_scalp_5m(rsi_5m) if rsi_5m is not None else None,
+        diagnose_scalp_1h(rsi_1h) if rsi_1h is not None else None,
         diagnose_bottom_fishing(candles_d, candles_w) if (candles_d and candles_w) else None,
         diagnose_light_reversal(candles_d) if candles_d else None,
         diagnose_confluence(candles_4h, candles_15m, candles_1h, candles_5m) if (candles_15m and candles_1h) else None,
@@ -2139,7 +2347,29 @@ def _acao_emoji(acao):
 
 
 def _fmt_symbol(symbol):
-    return "Mercado geral" if symbol == "MERCADO" else symbol.replace("USDT", "/USDT")
+    return "Mercado geral" if symbol == "MERCADO" else symbol.replace("USDT", "")
+
+
+def _entrada_texto(sig):
+    """
+    Como entrar — não é sempre "a mercado": quando o próprio sinal já
+    calcula uma ZONA de entrada (`entry_zone`, ex.: bottom fishing e
+    reversão com base, que miram um range de fundos ascendentes em vez de
+    um ponto único), faz mais sentido fracionar a compra/venda dentro dela
+    em vez de tudo de uma vez. Sinais de janela curta (scalp) pedem
+    urgência — o ponto de entrada perde a força rápido. O resto (pullback,
+    range, confluência, exaustão, rompimento falho) já é um ponto técnico
+    específico, então é a mercado mesmo.
+    """
+    zona = sig.get("entry_zone")
+    if zona:
+        low, high = zona
+        return (f"Fracionada (compra escalonada) entre {fmt_price(low)} e {fmt_price(high)} "
+                f"— zona ampla, não um ponto único, então monta a posição aos poucos em vez "
+                f"de tudo de uma vez.")
+    if sig.get("estilo") == "SCALP":
+        return "A mercado, com urgência — janela curta, o ponto de entrada perde a força rápido."
+    return "A mercado — ponto técnico específico, não precisa fracionar."
 
 
 def _checklist_linhas(checklist):
@@ -2154,21 +2384,26 @@ def _checklist_linhas(checklist):
 def _render_signal_core(sig, indent=""):
     """
     Bloco central de UM sinal, no formato enxuto tipo "cartão de operação":
-    📍 entrada, 🛑 stop, 🎯 alvo(s), 💡 resumo de uma linha do motivo técnico,
-    💰 preço agora, 🧠 explicação com contexto, e ⚠️ alerta quando tiver.
-    Compartilhado entre a mensagem de sinal único e a combinada — só muda a
-    indentação (usada quando o bloco entra dentro de uma mensagem maior).
+    📍 como entrar (a mercado ou fracionada, ver `_entrada_texto`), 🔴 stop
+    da corretora, 🎯 alvo(s) (com nota de realizar parcial/segurar quando
+    for mais de um alvo, típico de swing), 💡 resumo de uma linha do motivo
+    técnico, 💰 preço agora, 🧠 explicação com contexto, e 🚨 alerta quando
+    tiver. Compartilhado entre a mensagem de sinal único e a combinada — só
+    muda a indentação (usada quando o bloco entra dentro de uma mensagem
+    maior).
     """
     entry = sig.get("entry_price")
     stop = sig.get("stop_price")
     alvo = sig.get("target_price")
     alvos_lista = sig.get("target_prices")
 
-    linhas = [f"{indent}📍 Entrada: a mercado"]
+    linhas = [f"{indent}📍 Entrada: {_entrada_texto(sig)}"]
     if stop is not None:
-        linhas.append(f"{indent}🛑 Stop sugerido: {fmt_price(stop)}")
+        linhas.append(f"{indent}🔴 Stop corretora: {fmt_price(stop)}")
     if alvos_lista:
         linhas.append(f"{indent}🎯 Alvos: {' > '.join(fmt_price(t) for t in alvos_lista)}")
+        linhas.append(f"{indent}   (bateu um alvo: considere realizar parcial e segurar o "
+                       f"resto — swing pensa no lucro a longo prazo, não precisa sair tudo de uma vez)")
     elif alvo is not None:
         linhas.append(f"{indent}🎯 Alvo: {fmt_price(alvo)}")
     if sig.get("reward_risk_ratio") is not None:
@@ -2183,7 +2418,7 @@ def _render_signal_core(sig, indent=""):
 
     if sig.get("aviso"):
         linhas.append("")
-        linhas.append(f"{indent}⚠️ Alerta: {sig['aviso']}")
+        linhas.append(f"{indent}🚨 Alerta: {sig['aviso']}")
 
     checklist_linhas = _checklist_linhas(sig.get("checklist"))
     if checklist_linhas:
@@ -2333,20 +2568,33 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
         print(f"  {symbol}: erro ao buscar candles 15m/1h/5m ({e})")
         candles_15m, candles_1h, candles_5m = [], [], []
 
-    if candles_15m and candles_1h:
+    if candles_5m:
         try:
-            sig = check_scalp_cascade(symbol, candles_15m, candles_1h)
+            sig = check_scalp_5m(symbol, candles_5m)
             if sig:
                 sinais.append(sig)
             else:
-                rsi_15m = compute_rsi([c["close"] for c in candles_15m])
-                rsi_1h = compute_rsi([c["close"] for c in candles_1h])
-                diag = diagnose_scalp(rsi_15m, rsi_1h)
+                rsi_5m = compute_rsi([c["close"] for c in candles_5m])
+                diag = diagnose_scalp_5m(rsi_5m)
                 if diag:
                     diagnosticos.append({"symbol": symbol, **diag})
         except Exception as e:
-            print(f"  {symbol}: erro no check de cascata scalp ({e})")
+            print(f"  {symbol}: erro no check de primeiro toque 5m ({e})")
 
+    if candles_1h:
+        try:
+            sig = check_scalp_1h(symbol, candles_1h)
+            if sig:
+                sinais.append(sig)
+            else:
+                rsi_1h = compute_rsi([c["close"] for c in candles_1h])
+                diag = diagnose_scalp_1h(rsi_1h)
+                if diag:
+                    diagnosticos.append({"symbol": symbol, **diag})
+        except Exception as e:
+            print(f"  {symbol}: erro no check de primeiro toque 1h ({e})")
+
+    if candles_15m and candles_1h:
         try:
             sig = check_confluence(symbol, candles_4h, candles_15m, candles_1h, candles_5m)
             if sig:
@@ -2848,17 +3096,20 @@ def main():
     # CORE_SYMBOLS (BTC e ETH).
     do_full_scan = is_report_time or (is_manual and not symbol_query)
 
-    # Tendência majoritária do mercado (a partir do BTC no diário) — calculada
-    # uma vez por rodada e aplicada a TODO sinal COMPRAR/VENDER de toda moeda,
-    # pra nunca sugerir operar contra a maré (ex.: sinal de venda com o
-    # mercado em tendência de alta clara).
+    # Tendência majoritária do mercado (a partir do BTC, cruzando diário +
+    # semanal + mensal) — calculada uma vez por rodada e aplicada a TODO
+    # sinal COMPRAR/VENDER de toda moeda, pra nunca sugerir operar contra a
+    # maré (ex.: sinal de venda com o mercado em tendência de alta clara em
+    # todos os tempos gráficos).
     try:
         btc_candles_trend = fetch_klines("BTCUSDT", "1d", MARKET_TREND_EMA_SLOW + 20)
-        market_trend = detect_market_trend(btc_candles_trend)
+        btc_candles_trend_w = fetch_klines("BTCUSDT", "1w", MARKET_TREND_WEEKLY_EMA_SLOW + 20)
+        btc_candles_trend_m = fetch_klines("BTCUSDT", "1M", MARKET_TREND_MONTHLY_EMA_SLOW + 20)
+        market_trend = detect_market_trend(btc_candles_trend, btc_candles_trend_w, btc_candles_trend_m)
     except Exception as e:
         print(f"  erro calculando tendência majoritária do mercado ({e}) — seguindo sem filtro de tendência")
         market_trend = "neutra"
-    print(f"[{datetime.now(timezone.utc).isoformat()}] Tendência majoritária do mercado (BTC, diário): {market_trend}")
+    print(f"[{datetime.now(timezone.utc).isoformat()}] Tendência majoritária do mercado (BTC, diário+semanal+mensal): {market_trend}")
 
     watchlist, tiers = [], {}
     sinais_por_moeda = {}
