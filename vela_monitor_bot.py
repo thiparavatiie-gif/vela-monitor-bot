@@ -57,14 +57,15 @@
 #      último) — memecoins muito à frente dos outros dois grupos ao mesmo
 #      tempo tende a marcar fase mais avançada/especulativa do movimento.
 #
-#   8) MERCADO EM CONSOLIDAÇÃO / RANGE (swing curto) — quando não tem
-#      tendência clara (últimos candles de 4h comprimidos numa faixa
-#      estreita) e o preço está perto de uma das bordas dessa faixa, sugere
-#      operar o próprio range: comprar perto do fundo mirando o topo, ou
-#      vender perto do topo mirando o fundo, com stop logo fora da faixa. É
-#      o "o que fazer quando o mercado fica parado", em vez de ficar sem
-#      nenhuma ideia quando não tem uma tendência definida. Alvo segue o
-#      "padrão de equilíbrio" do Diego — "quanto mais tempo lateralizado,
+#   8) PADRÃO DE EQUILÍBRIO (swing curto) — quando não tem tendência clara
+#      (últimos candles de 4h comprimidos numa faixa estreita, alternando
+#      fundo/topo sem romper) e o preço está perto de uma das bordas dessa
+#      faixa, sugere operar o próprio padrão: comprar perto do fundo mirando
+#      o topo, ou vender perto do topo mirando o fundo, com stop logo além
+#      do último fundo/topo formado. É o "o que fazer quando o mercado fica
+#      parado", em vez de ficar sem nenhuma ideia quando não tem uma
+#      tendência definida. Alvo segue o "padrão de equilíbrio" do Diego —
+#      "quanto mais tempo lateralizado,
 #      maior o impulso no rompimento": se o preço já está contido nessa
 #      faixa por bem mais tempo que o mínimo exigido, o alvo estende além
 #      da borda oposta (proporcional ao tempo extra, com teto), em vez de
@@ -103,6 +104,14 @@
 #      maré" tende a dar errado mesmo quando o setup local parece certo.
 #      Mercado sem tendência clara, ou com os tempos gráficos discordando
 #      entre si (neutro) não filtra nada.
+#
+#  RESTRIÇÃO TEMPORÁRIA (SOMENTE_CORE_SYMBOLS, ligada por padrão): por
+#  pedido, o bot não analisa nem manda mensagem de NENHUMA moeda fora de
+#  CORE_SYMBOLS (BTC/ETH) — a varredura completa do watchlist (itens 3-7
+#  acima pra outras moedas, dominância, ciclo) e as seções extras do
+#  relatório categorizado (item 10 abaixo) ficam pausadas. A consulta manual
+#  por symbol continua funcionando pra qualquer par. Ver a constante perto
+#  de CORE_SYMBOLS pra reverter.
 #
 #  Cada mensagem de sinal vem com um checklist (✅/❌) dos itens que
 #  confirmaram aquele setup (RSI, volume, estrutura, EMA de contexto) e,
@@ -400,6 +409,14 @@ REPORT_BOTTOM_FISHING_N = 2
 # manualmente — ver do_full_scan em main()) ---
 CORE_SYMBOLS = ["BTCUSDT", "ETHUSDT"]
 CORE_EXTRA_ALTS_N = 2
+
+# Restrição temporária, por pedido: enquanto isso estiver True, o bot não
+# analisa (nem manda mensagem de) NENHUMA moeda fora de CORE_SYMBOLS — nem
+# a varredura completa do watchlist (scalp/altcoins/bottom fishing/
+# dominância/ciclo), nem o XRP + top 10 CoinMarketCap do relatório
+# categorizado. Pra voltar a cobrir o resto do mercado, é só voltar isso
+# pra False.
+SOMENTE_CORE_SYMBOLS = True
 
 # Pivô usado só no cenário touro/urso (swing longo, candle diário) — mais
 # largo que o PIVOT_LEN do 4h porque no diário pivôs curtos viram ruído.
@@ -1517,7 +1534,7 @@ def check_cycle_phase(btc_return, avg_alt_return):
 
 
 # ----------------------------------------------------------------------------
-# SINAL 8 — MERCADO EM CONSOLIDAÇÃO / RANGE (swing curto)
+# SINAL 8 — PADRÃO DE EQUILÍBRIO (swing curto)
 # ----------------------------------------------------------------------------
 
 def _range_consolidation_duration(candles, range_high, range_low):
@@ -1583,27 +1600,40 @@ def check_range_market(symbol, candles):
     range_longo = duracao > RANGE_LOOKBACK  # achou consolidação além da janela mínima
 
     if posicao <= RANGE_EDGE_ZONE_PCT:
-        acao, lado_txt = "COMPRAR", "perto do fundo do range"
+        acao, lado_txt = "COMPRAR", "perto do fundo do padrão de equilíbrio"
         stop = avoid_round_number_stop(range_low * 0.995, "compra")
         alvo = range_high + alvo_extra
     elif posicao >= (1 - RANGE_EDGE_ZONE_PCT):
-        acao, lado_txt = "VENDER", "perto do topo do range"
+        acao, lado_txt = "VENDER", "perto do topo do padrão de equilíbrio"
         stop = avoid_round_number_stop(range_high * 1.005, "venda")
         alvo = range_low - alvo_extra
     else:
         return None  # parado, mas no meio da faixa — sem ponto de entrada bom agora
 
     checklist = [
-        (f"Faixa estreita nos últimos {RANGE_LOOKBACK} candles ({range_pct * 100:.1f}% ≤ {RANGE_MAX_PCT * 100:.0f}%)", True),
+        (f"Padrão de equilíbrio nos últimos {RANGE_LOOKBACK} candles ({range_pct * 100:.1f}% ≤ {RANGE_MAX_PCT * 100:.0f}%)", True),
         (f"Preço {lado_txt}", True),
     ]
     if range_longo:
         checklist.append((f"Lateralizado há mais tempo ({duracao} candles, {duracao_mult:.1f}x a janela mínima) — alvo estendido", True))
 
-    titulo = ("Rompimento de range longo — operação de range" if range_longo
-              else "Mercado em consolidação — operação de range")
-    alvo_txt = (f"Alvo (borda oposta + extensão por consolidação longa): {fmt_price(alvo)}" if range_longo
-                else f"Alvo (borda oposta do range): {fmt_price(alvo)}")
+    titulo = ("Padrão de equilíbrio — rompimento longo" if range_longo
+              else "Padrão de equilíbrio — operação de range")
+    alvo_txt = (f"Alvo (topo do padrão + extensão por consolidação longa): {fmt_price(alvo)}" if range_longo
+                else f"Alvo (lado oposto do padrão de equilíbrio): {fmt_price(alvo)}")
+
+    if acao == "COMPRAR":
+        entrada_desc = (
+            f"o preço está no fundo do padrão de equilíbrio — a estratégia aqui é entrar "
+            f"com o stop logo abaixo do último fundo formado ({fmt_price(range_low)}) e "
+            f"mirar o topo do padrão ({fmt_price(range_high)})"
+        )
+    else:
+        entrada_desc = (
+            f"o preço está no topo do padrão de equilíbrio — a estratégia aqui é entrar "
+            f"com o stop logo acima do último topo formado ({fmt_price(range_high)}) e "
+            f"mirar o fundo do padrão ({fmt_price(range_low)})"
+        )
 
     return {
         "symbol": symbol, "estilo": "RANGE", "acao": acao,
@@ -1620,24 +1650,28 @@ def check_range_market(symbol, candles):
         "checklist": checklist,
         "entry_price": price_now, "target_price": alvo, "stop_price": stop,
         "resumo": (
-            f"Mercado em range ({range_pct * 100:.1f}% de amplitude, {duracao} candles lateralizado), preço {lado_txt}."
+            f"Padrão de equilíbrio ({range_pct * 100:.1f}% de amplitude, {duracao} candles), "
+            f"preço {lado_txt}."
         ),
         "explicacao": (
-            f"Sem tendência clara — os últimos candles ficaram comprimidos numa faixa "
-            f"estreita ({range_pct * 100:.1f}% de amplitude) há {duracao} candles "
-            f"({duracao_mult:.1f}x a janela mínima de {RANGE_LOOKBACK}). Quando não tem "
-            f"direção definida, a ideia é operar o próprio range: entrar perto de uma "
-            f"borda mirando a borda oposta, com stop logo fora dela."
-            + (f" Como a consolidação já dura bem mais que o mínimo, o alvo estende "
-               f"{extensao_mult:.1f}x a altura do range além da borda oposta — quanto mais "
-               f"tempo lateralizado, maior tende a ser o impulso no rompimento."
+            f"Isso é o que o Diego chama de padrão de equilíbrio: em vez de tendência, o "
+            f"preço fica alternando entre fundo e topo dentro da mesma faixa "
+            f"({fmt_price(range_low)}–{fmt_price(range_high)}, {range_pct * 100:.1f}% de "
+            f"amplitude) há {duracao} candles — fundo, topo, fundo ascendente, topo "
+            f"descendente, sem conseguir romper de vez pra nenhum lado ainda. A leitura "
+            f"dele pra esse cenário é direta: {entrada_desc}. Se o preço romper com força "
+            f"pra fora da faixa, deixou de ser equilíbrio — e, pela regra dele, quanto mais "
+            f"tempo o preço ficou lateralizado, maior tende a ser o impulso desse rompimento."
+            + (f" Como essa consolidação já dura bem mais que o mínimo "
+               f"({duracao_mult:.1f}x), o alvo já vem estendido {extensao_mult:.1f}x a "
+               f"altura do padrão além da borda oposta."
                if range_longo else "")
         ),
         "aviso": (
-            "Setup de range tende a ter alvo e risco menores que um movimento de "
+            "Setup de padrão de equilíbrio tende a ter alvo e risco menores que um movimento de "
             "tendência — considere reduzir o tamanho da posição em relação a um "
             "swing/pullback de verdade, e saia se o preço romper a faixa com força "
-            "(aí deixou de ser range)."
+            "(aí deixou de ser um padrão de equilíbrio)."
         ),
     }
 
@@ -2124,11 +2158,11 @@ def diagnose_range_market(candles):
     posicao = (price_now - range_low) / (range_high - range_low)
     if RANGE_EDGE_ZONE_PCT < posicao < (1 - RANGE_EDGE_ZONE_PCT):
         return {
-            "tipo": "Mercado em consolidação",
+            "tipo": "Padrão de equilíbrio",
             "score": 0.5,
-            "texto": (f"Mercado parado ({range_pct * 100:.1f}% de amplitude, "
-                      f"{fmt_price(range_low)}-{fmt_price(range_high)}) — no meio do range, "
-                      f"aguardando aproximar de uma borda pra ter entrada."),
+            "texto": (f"Padrão de equilíbrio se formando ({range_pct * 100:.1f}% de amplitude, "
+                      f"{fmt_price(range_low)}-{fmt_price(range_high)}) — no meio da faixa, "
+                      f"aguardando aproximar do fundo ou do topo pra ter entrada."),
         }
     return None  # já perto de uma borda: isso já teria virado sinal de verdade lá em cima
 
@@ -2974,7 +3008,8 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
     return "\n\n".join(partes)
 
 
-def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra=None, market_trend="neutra"):
+def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra=None, market_trend="neutra",
+                                   only_core=False):
     """
     Organiza o que a varredura já achou por horizonte de operação, em vez de
     mandar sinal solto: swing principal (BTC/ETH sempre aparecem), swing
@@ -2982,6 +3017,11 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
     bottom fishing — cada seção limitada e filtrada pelas melhores, pra não
     lotar o Telegram (pedido depois de um relatório de diagnóstico que saiu
     com quase 40 moedas de uma vez).
+
+    Com `only_core=True` (restrição temporária só BTC/ETH — ver
+    SOMENTE_CORE_SYMBOLS), as seções que dependem de outras moedas (swing
+    secundário, altcoins pequenas, scalp, bottom fishing) nem tentam buscar
+    dado de outra moeda — só avisam que estão pausadas.
     """
     candles_d_extra = candles_d_extra or {}
     linhas = ["📊 VELA MONITOR — RELATÓRIO DO DIA (swing)", ""]
@@ -2993,6 +3033,19 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
     linhas.append("🏆 SWING PRINCIPAL")
     linhas.extend(_build_btc_eth_lines(sinais_por_moeda, candles_d_extra))
     linhas.append("")
+
+    if only_core:
+        linhas.append(
+            "Restrito a BTC/ETH por enquanto — swing secundário, altcoins "
+            "pequenas, scalp e bottom fishing de outras moedas estão pausados "
+            "(SOMENTE_CORE_SYMBOLS)."
+        )
+        linhas.append("")
+        linhas.append(
+            "⚠️ Leitura automática baseada nas mesmas regras dos sinais do bot — não "
+            "é recomendação de investimento."
+        )
+        return "\n".join(linhas)
 
     # 2) Swing secundário — XRP + top 10 CoinMarketCap (menos BTC/ETH, já cobertos acima)
     linhas.append("📈 SWING SECUNDÁRIO (XRP + top 10 mercado)")
@@ -3095,6 +3148,10 @@ def main():
     # mais rápido. Nas rodadas normais de hora em hora, o bot analisa só
     # CORE_SYMBOLS (BTC e ETH).
     do_full_scan = is_report_time or (is_manual and not symbol_query)
+    # Com SOMENTE_CORE_SYMBOLS ligado, a varredura completa fica DESLIGADA de
+    # verdade (nem roda por baixo dos panos) — o bot nunca analisa nem manda
+    # nada de nenhuma moeda fora de CORE_SYMBOLS.
+    full_scan_ativo = do_full_scan and not SOMENTE_CORE_SYMBOLS
 
     # Tendência majoritária do mercado (a partir do BTC, cruzando diário +
     # semanal + mensal) — calculada uma vez por rodada e aplicada a TODO
@@ -3116,7 +3173,7 @@ def main():
     todos_diagnosticos = []
     encontrados = 0
 
-    if do_full_scan:
+    if full_scan_ativo:
         print(f"[{datetime.now(timezone.utc).isoformat()}] Buscando os {TOP_N_SYMBOLS} pares "
               f"USDT de maior volume na Binance...")
         try:
@@ -3182,8 +3239,12 @@ def main():
         except Exception as e:
             print(f"  erro no termômetro de ciclo ({e})")
     else:
-        print(f"[{datetime.now(timezone.utc).isoformat()}] Rodada rápida (só {', '.join(CORE_SYMBOLS)}) "
-              f"— a varredura completa do watchlist só roda nos horários do relatório ou manualmente.")
+        if SOMENTE_CORE_SYMBOLS:
+            print(f"[{datetime.now(timezone.utc).isoformat()}] Restrito a {', '.join(CORE_SYMBOLS)} por "
+                  f"enquanto (SOMENTE_CORE_SYMBOLS) — nenhuma outra moeda entra na análise.")
+        else:
+            print(f"[{datetime.now(timezone.utc).isoformat()}] Rodada rápida (só {', '.join(CORE_SYMBOLS)}) "
+                  f"— a varredura completa do watchlist só roda nos horários do relatório ou manualmente.")
         for symbol in CORE_SYMBOLS:
             try:
                 sinais, diagnosticos = analyze_symbol(symbol, market_trend=market_trend)
@@ -3202,8 +3263,8 @@ def main():
     encontrados += sinais_moeda_count
 
     print(f"[{datetime.now(timezone.utc).isoformat()}] Montando status core ({', '.join(CORE_SYMBOLS)}"
-          f"{' + destaques' if do_full_scan else ''})...")
-    if do_full_scan:
+          f"{' + destaques' if full_scan_ativo else ''})...")
+    if full_scan_ativo:
         extra_alts = select_core_extra_altcoins(watchlist, sinais_por_moeda, diagnosticos_lista_por_moeda)
         print(f"  altcoins escolhidas pro status dessa rodada: {', '.join(extra_alts) or '(nenhuma)'}")
     else:
@@ -3225,7 +3286,8 @@ def main():
     if is_report_time:
         print(f"[{datetime.now(timezone.utc).isoformat()}] Horário de relatório categorizado — montando...")
         try:
-            report_msg = build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra, market_trend=market_trend)
+            report_msg = build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra,
+                                                         market_trend=market_trend, only_core=SOMENTE_CORE_SYMBOLS)
             ok = send_telegram_message(report_msg)
             print("  -> relatório categorizado enviado" if ok else "  -> FALHOU ao enviar o relatório categorizado")
         except Exception as e:

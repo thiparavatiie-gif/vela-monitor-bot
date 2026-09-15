@@ -220,19 +220,28 @@ gráficos" (e vice-versa pra topo). O diário continua sendo quem dá o
 veredito; o semanal e o mensal precisam concordar com ele, senão o
 resultado vira "neutra" (sem filtro).
 
-## Alvo maior em rompimento de range longo
+## Alvo maior em rompimento de range longo (padrão de equilíbrio)
 
-O sinal de "Mercado em consolidação / range" (ver `check_range_market`) só
-olhava pra `RANGE_LOOKBACK` candles fixos pra achar a faixa e sempre mirava
-a borda oposta como alvo. Agora, seguindo o "padrão de equilíbrio" do
-Diego — **"quanto mais tempo lateralizado, maior o impulso durante o
-rompimento"** — o bot olha além dessa janela mínima pra ver há quanto tempo
-o preço já está realmente contido na mesma faixa (até um teto de
-`RANGE_BREAKOUT_MAX_LOOKBACK_MULT` vezes a janela mínima). Se a
-consolidação já dura bem mais que o mínimo, o título vira "Rompimento de
-range longo" e o alvo estende além da borda oposta — proporcional ao tempo
-extra lateralizado, com um teto (`RANGE_BREAKOUT_EXTENSION_CAP`) pra não
-virar um alvo fantasioso numa consolidação muito longa.
+O sinal que antes se chamava "Mercado em consolidação / range" (ver
+`check_range_market`) virou **"Padrão de equilíbrio"** — mesmo critério
+técnico, mas o texto explicativo (🧠) agora usa o vocabulário do Diego em
+vez de uma descrição genérica de range: preço alternando entre fundo e
+topo (fundo, topo, fundo ascendente, topo descendente) sem conseguir
+romper; a entrada é sempre a partir de uma das bordas do padrão (fundo pra
+compra, topo pra venda), com o stop logo além do último fundo/topo
+formado, mirando o lado oposto.
+
+O alvo também não é sempre só a borda oposta: `check_range_market` só
+olhava pra `RANGE_LOOKBACK` candles fixos pra achar a faixa. Agora, seguindo
+o "padrão de equilíbrio" do Diego — **"quanto mais tempo lateralizado,
+maior o impulso durante o rompimento"** — o bot olha além dessa janela
+mínima pra ver há quanto tempo o preço já está realmente contido na mesma
+faixa (até um teto de `RANGE_BREAKOUT_MAX_LOOKBACK_MULT` vezes a janela
+mínima). Se a consolidação já dura bem mais que o mínimo, o título vira
+"Padrão de equilíbrio — rompimento longo" e o alvo estende além da borda
+oposta — proporcional ao tempo extra lateralizado, com um teto
+(`RANGE_BREAKOUT_EXTENSION_CAP`) pra não virar um alvo fantasioso numa
+consolidação muito longa.
 
 ## Mensagens mais diretas: checklist, alvo e sem duplicidade
 
@@ -312,6 +321,29 @@ Pra voltar a incluir XRP e 2 altcoins em destaque (como era antes), edite
 `CORE_SYMBOLS` e `CORE_EXTRA_ALTS_N` no topo do script — só que aí a
 varredura completa do watchlist volta a rodar toda hora (mais lento de
 novo), porque é dela que vem a escolha das melhores altcoins.
+
+## Restrito a só BTC/ETH por enquanto (`SOMENTE_CORE_SYMBOLS`)
+
+Por pedido, tem uma trava temporária ligada por padrão (`SOMENTE_CORE_SYMBOLS
+= True`, perto de `CORE_SYMBOLS` no topo do script) que faz o bot não
+analisar — nem mandar qualquer mensagem de — nenhuma moeda fora de
+`CORE_SYMBOLS`. Diferente da otimização de performance acima (que só
+adiava a varredura completa pros horários certos), essa trava desliga a
+varredura completa de vez enquanto estiver ligada:
+
+- A varredura completa do watchlist (scalp/altcoins pequenas/bottom
+  fishing/dominância BTC-altseason/termômetro de ciclo) nem roda, mesmo nos
+  horários de relatório ou numa execução manual sem moeda específica.
+- O relatório categorizado (seção abaixo) manda só a seção "Swing
+  Principal" (BTC/ETH) — as seções de swing secundário (XRP + top 10
+  CoinMarketCap), altcoins pequenas, scalp e bottom fishing aparecem como
+  "pausadas", sem buscar dado nenhum de outra moeda.
+- A consulta manual por uma moeda específica (campo `symbol`) continua
+  funcionando normalmente pra qualquer par — a trava é só sobre o que o bot
+  varre/manda sozinho, não sobre o que você pode perguntar.
+
+Pra voltar a cobrir o resto do mercado, é só colocar `SOMENTE_CORE_SYMBOLS
+= False` de novo.
 
 **Importante sobre execuções manuais**: o relatório categorizado completo
 (seção abaixo) só dispara automaticamente pelo relógio — testar manualmente
