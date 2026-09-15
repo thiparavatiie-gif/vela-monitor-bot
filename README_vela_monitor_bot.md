@@ -232,6 +232,42 @@ Quando isso acontece:
 - Deixa o **🗺️ Plano B** mais enfático — o texto abre avisando que o
   rompimento fica mais provável antes de explicar os próximos níveis.
 
+## Memória da última operação enviada (mensagem fixada no Telegram)
+
+Antes disso, o status de toda rodada só mostrava um diagnóstico solto ("mais
+perto de bater") sem nenhum vínculo com a última operação de verdade que o
+bot já tinha mandado — dava pra saber que o RSI estava perto de sobrevenda,
+mas não quando foi a última compra/venda real, nem como o preço andou desde
+lá. Isso mudou sem precisar guardar nada no repositório nem depender do
+cache do GitHub Actions (que expira): o bot usa o **próprio Telegram como
+memória**.
+
+Como funciona:
+
+- Toda vez que sai uma operação de verdade (COMPRAR/VENDER) pra BTC ou ETH,
+  o bot grava os dados dela (ação, título, tempo gráfico, entrada, stop,
+  alvo, data/hora) numa mensagem e **fixa** ela no seu chat
+  (`atualiza_memoria_ultima_operacao`).
+- Na rodada seguinte, antes de montar o status, ele pergunta pro Telegram
+  qual é a mensagem fixada agora (`getChat` / `get_memoria_pinned`) — essa
+  resposta já vem com os dados de volta, sem o bot precisar guardar nada em
+  lugar nenhum.
+- Se sai uma operação nova, ele **edita a mesma mensagem fixada** (em vez de
+  fixar uma nova a cada vez, que ia acumulando pin antigo) — BTC e ETH ficam
+  registrados nela ao mesmo tempo, cada um com o próprio histórico mais
+  recente.
+- Quando não sai operação nova pra um símbolo naquela rodada, o status
+  daquele símbolo passa a trazer um bloco **📍 Última operação enviada**
+  com: qual foi, quando (e há quanto tempo), os valores dela, e como o
+  preço andou desde então — inclusive avisando se o preço já passou do stop
+  ou do alvo daquela operação (`_ultima_operacao_texto`).
+
+Importante: **não apague nem desafixe** essa mensagem de memória no
+Telegram — é ela que o bot usa pra lembrar da última operação de cada
+moeda. Se ela for apagada, o bot simplesmente recomeça do zero (próxima
+operação vira a primeira registrada) — não trava nem dá erro, só perde o
+histórico anterior.
+
 ## Cardápio de trade: sinais separados de 5m (day trade) e 1h (swing)
 
 O sinal de "Cascata de RSI" antigo exigia RSI de 15m **e** de 1h em zona de

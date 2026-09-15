@@ -116,6 +116,20 @@
 #  enfático (o rompimento fica mais provável, não é só uma possibilidade
 #  remota).
 #
+#  MEMÓRIA DA ÚLTIMA OPERAÇÃO (por símbolo, BTC/ETH): o bot guarda os dados
+#  da última operação de verdade (COMPRAR/VENDER) de cada moeda numa
+#  mensagem FIXADA (pin) no próprio chat do Telegram — sem tocar no
+#  repositório git nem depender de cache do GitHub Actions. A cada rodada,
+#  antes de montar o status, ele pergunta pro Telegram qual é a mensagem
+#  fixada agora (`getChat`), lê os dados dela, e se saiu operação nova
+#  atualiza só aquele símbolo e fixa a versão nova (editando a mesma
+#  mensagem, não acumulando pin antigo). O status de toda rodada passa a
+#  trazer, pra cada símbolo sem sinal ativo no momento, um bloco "📍 Última
+#  operação enviada" com: quando foi, os valores (entrada/stop/alvo), há
+#  quanto tempo, e como o preço andou desde então (inclusive se já passou do
+#  stop ou do alvo) — ver `atualiza_memoria_ultima_operacao`,
+#  `get_memoria_pinned` e `_ultima_operacao_texto`.
+#
 #  RESTRIÇÃO TEMPORÁRIA (SOMENTE_CORE_SYMBOLS, ligada por padrão): por
 #  pedido, o bot não analisa nem manda mensagem de NENHUMA moeda fora de
 #  CORE_SYMBOLS (BTC/ETH) — a varredura completa do watchlist (itens 3-7
@@ -2709,27 +2723,251 @@ def format_combined_signal_message(symbol, sinais):
     return "\n".join(linhas)
 
 
+def _telegram_request(method, payload):
+    """
+    Chamada genérica pra qualquer método da Bot API do Telegram (sendMessage,
+    editMessageText, pinChatMessage, getChat...). Retorna o JSON já decodificado
+    da resposta (dict, com "ok"/"result"/"description") ou None se deu erro de
+    rede/HTTP. Usada tanto pelo envio normal de mensagem quanto pela memória da
+    última operação (ver mais abaixo).
+    """
+    if not BOT_TOKEN:
+        print("ERRO: defina TELEGRAM_BOT_TOKEN nas variáveis de ambiente.")
+        return None
+    url = f"{TELEGRAM_BASE}/bot{BOT_TOKEN}/{method}"
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        print(f"Erro na chamada Telegram {method}: {e.code} {e.read()}")
+        return None
+    except Exception as e:
+        print(f"Erro na chamada Telegram {method}: {e}")
+        return None
+
+
 def send_telegram_message(text):
     if not BOT_TOKEN or not CHAT_ID:
         print("ERRO: defina TELEGRAM_BOT_TOKEN e TELEGRAM_CHAT_ID nas variáveis de ambiente.")
         return False
-    url = f"{TELEGRAM_BASE}/bot{BOT_TOKEN}/sendMessage"
-    payload = json.dumps({
+    resp = _telegram_request("sendMessage", {
         "chat_id": CHAT_ID,
         "text": text,
         "disable_web_page_preview": True,
-    }).encode("utf-8")
-    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    })
+    return bool(resp and resp.get("ok"))
+
+
+# ----------------------------------------------------------------------------
+# MEMÓRIA DA ÚLTIMA OPERAÇÃO — em vez de guardar arquivo no repositório ou
+# depender do cache do GitHub Actions (que pode expirar/limpar), usa o
+# próprio Telegram como "banco de dados": o bot mantém UMA mensagem fixada
+# (pin) no chat com os dados da última operação de verdade (COMPRAR/VENDER)
+# de cada símbolo em CORE_SYMBOLS. A cada rodada:
+#   1) pergunta pro Telegram qual é a mensagem fixada agora (getChat) e lê
+#      os dados dela (get_memoria_pinned);
+#   2) se saiu operação nova nessa rodada, atualiza só aquele símbolo e
+#      fixa a versão nova — editando a MESMA mensagem (editMessageText)
+#      quando já existe um pin, em vez de acumular fixação antiga;
+#   3) devolve os dados de ANTES da atualização, pra quem for montar o
+#      "desde a última operação..." ainda usar a operação anterior mesmo
+#      dentro da rodada que acabou de mandar uma nova.
+# Nada disso toca no repositório git nem depende de cache — é só estado
+# guardado dentro da própria conversa do Telegram.
+# ----------------------------------------------------------------------------
+
+MEMORIA_MARCADOR = "DADOS_JSON:"
+
+
+def get_memoria_pinned():
+    """
+    Busca a mensagem fixada atual do chat (getChat) e tenta extrair o bloco
+    de dados dela (linha que começa com "DADOS_JSON:"). Retorna uma tupla
+    (message_id, dados_por_simbolo) — message_id é None se não tem pin
+    (ou deu erro), e dados_por_simbolo é {} se não tem pin ou não deu pra
+    parsear os dados.
+    """
+    if not BOT_TOKEN or not CHAT_ID:
+        return None, {}
+    resp = _telegram_request("getChat", {"chat_id": CHAT_ID})
+    if not resp or not resp.get("ok"):
+        return None, {}
+    pinned = (resp.get("result") or {}).get("pinned_message")
+    if not pinned:
+        return None, {}
+    message_id = pinned.get("message_id")
+    texto = pinned.get("text", "") or ""
+    for linha in texto.splitlines():
+        if linha.startswith(MEMORIA_MARCADOR):
+            try:
+                dados = json.loads(linha[len(MEMORIA_MARCADOR):].strip())
+                if isinstance(dados, dict):
+                    return message_id, dados
+            except Exception:
+                pass
+    return message_id, {}
+
+
+def _texto_memoria(dados_por_simbolo):
+    """
+    Monta o texto da mensagem de memória: um resumo legível (o que aparece
+    fixado no topo do chat, pra você também conseguir bater o olho) seguido
+    da linha "DADOS_JSON: {...}" que é a parte que o bot de fato lê de volta
+    — o resumo de cima é só cosmético, não precisa ficar sincronizado
+    palavra por palavra com o parser.
+    """
+    linhas = [
+        "📌 VELA MONITOR — memória da última operação (BTC/ETH)",
+        "Não apague nem desafixe — o bot usa essa mensagem pra lembrar da "
+        "última operação enviada de cada moeda.",
+        "",
+    ]
+    for symbol in CORE_SYMBOLS:
+        info = dados_por_simbolo.get(symbol)
+        nome = _fmt_symbol(symbol)
+        if not info:
+            linhas.append(f"{nome} — nenhuma operação registrada ainda.")
+        else:
+            linhas.append(f"{nome} — {info.get('acao', '?')} · {info.get('titulo', '?')} "
+                           f"({info.get('timeframe', '?')})")
+            linhas.append(f"Enviado em: {info.get('timestamp', '?')}")
+            entrada_txt = fmt_price(info["entry"]) if info.get("entry") is not None else "-"
+            stop_txt = fmt_price(info["stop"]) if info.get("stop") is not None else "-"
+            alvo_txt = fmt_price(info["alvo"]) if info.get("alvo") is not None else "-"
+            linhas.append(f"Entrada: {entrada_txt} | Stop: {stop_txt} | Alvo: {alvo_txt}")
+        linhas.append("")
+    linhas.append(f"{MEMORIA_MARCADOR} {json.dumps(dados_por_simbolo)}")
+    return "\n".join(linhas)
+
+
+def atualiza_memoria_ultima_operacao(sinais_por_moeda):
+    """
+    Lê a memória fixada atual e, se saiu sinal de verdade (COMPRAR/VENDER)
+    nessa rodada pra algum símbolo de CORE_SYMBOLS, atualiza o registro
+    daquele símbolo e fixa a versão nova (editando a mensagem existente
+    quando já tem uma fixada, senão manda uma mensagem nova e fixa ela).
+    Se não saiu operação nova em nenhum símbolo, não mexe em nada no
+    Telegram (evita editar/fixar à toa toda rodada).
+
+    Retorna o dict de ANTES da atualização — é esse que build_core_status_message
+    usa pra montar o "desde a última operação enviada..." de cada símbolo,
+    já que o sinal novo (se saiu) já aparece no cartão normal da rodada.
+    """
+    if not BOT_TOKEN or not CHAT_ID:
+        return {}
+    message_id, dados_antigos = get_memoria_pinned()
+    dados_novos = dict(dados_antigos)
+    agora_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    mudou = False
+    for symbol in CORE_SYMBOLS:
+        sinais = sinais_por_moeda.get(symbol) or []
+        sig = next((s for s in sinais if s.get("acao") in ("COMPRAR", "VENDER")), None)
+        if not sig:
+            continue
+        alvos_lista = sig.get("target_prices")
+        alvo = alvos_lista[0] if alvos_lista else sig.get("target_price")
+        dados_novos[symbol] = {
+            "acao": sig.get("acao"),
+            "titulo": sig.get("titulo"),
+            "timeframe": sig.get("timeframe"),
+            "entry": sig.get("entry_price"),
+            "stop": sig.get("stop_price"),
+            "alvo": alvo,
+            "timestamp": agora_iso,
+        }
+        mudou = True
+
+    if not mudou:
+        return dados_antigos
+
+    texto = _texto_memoria(dados_novos)
     try:
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            resp.read()
-        return True
-    except urllib.error.HTTPError as e:
-        print(f"Erro ao enviar pro Telegram: {e.code} {e.read()}")
-        return False
+        if message_id is not None:
+            resp = _telegram_request("editMessageText", {
+                "chat_id": CHAT_ID, "message_id": message_id, "text": texto,
+                "disable_web_page_preview": True,
+            })
+            if resp and resp.get("ok"):
+                return dados_antigos
+            print("  aviso: não deu pra editar a mensagem de memória fixada — mandando uma nova")
+        resp = _telegram_request("sendMessage", {
+            "chat_id": CHAT_ID, "text": texto, "disable_web_page_preview": True,
+        })
+        if resp and resp.get("ok"):
+            novo_id = resp["result"]["message_id"]
+            _telegram_request("pinChatMessage", {
+                "chat_id": CHAT_ID, "message_id": novo_id, "disable_notification": True,
+            })
+        else:
+            print("  aviso: não deu pra mandar/fixar a mensagem de memória")
     except Exception as e:
-        print(f"Erro ao enviar pro Telegram: {e}")
-        return False
+        print(f"  erro atualizando a memória da última operação ({e})")
+    return dados_antigos
+
+
+def _ultima_operacao_texto(info_anterior, price_now):
+    """
+    Monta o bloco "📍 Última operação enviada" pra um símbolo, a partir do
+    registro salvo na memória fixada (`info_anterior`, um dict como o
+    guardado por `atualiza_memoria_ultima_operacao`) e do preço atual. Mostra
+    há quanto tempo foi, os valores daquela operação, e como o preço andou
+    desde então (inclusive se já passou do stop ou do alvo) — é o contexto
+    que antes só aparecia como diagnóstico solto, sem nenhum vínculo com a
+    última operação real que o bot mandou.
+    """
+    if not info_anterior:
+        return ("📍 Última operação enviada: nenhuma registrada ainda (é a primeira "
+                "operação real dessa moeda desde que essa memória começou a rodar).")
+
+    ts_txt = info_anterior.get("timestamp", "?")
+    tempo_txt = "tempo desconhecido"
+    try:
+        ts = datetime.strptime(ts_txt, "%Y-%m-%d %H:%M UTC").replace(tzinfo=timezone.utc)
+        delta_h = (datetime.now(timezone.utc) - ts).total_seconds() / 3600
+        if delta_h < 0:
+            tempo_txt = "agora mesmo"
+        elif delta_h < 1:
+            tempo_txt = f"{int(delta_h * 60)} min atrás"
+        elif delta_h < 48:
+            tempo_txt = f"{delta_h:.1f}h atrás"
+        else:
+            tempo_txt = f"{delta_h / 24:.1f} dias atrás"
+    except Exception:
+        pass
+
+    acao = info_anterior.get("acao")
+    entry = info_anterior.get("entry")
+    stop = info_anterior.get("stop")
+    alvo = info_anterior.get("alvo")
+
+    linhas = [
+        f"📍 Última operação enviada: {acao} · {info_anterior.get('titulo', '?')} "
+        f"({info_anterior.get('timeframe', '?')}) — {tempo_txt} (em {ts_txt})."
+    ]
+    entrada_txt = fmt_price(entry) if entry is not None else "-"
+    stop_txt = fmt_price(stop) if stop is not None else "-"
+    alvo_txt = fmt_price(alvo) if alvo is not None else "-"
+    linhas.append(f"   Entrada no envio: {entrada_txt} | Stop: {stop_txt} | Alvo: {alvo_txt}")
+
+    if price_now is not None and entry:
+        variacao = (price_now - entry) / entry * 100
+        sinal_var = "+" if variacao >= 0 else ""
+        linhas.append(f"   Preço agora: {fmt_price(price_now)} ({sinal_var}{variacao:.1f}% desde a entrada)")
+        if acao in ("COMPRAR", "VENDER"):
+            passou_stop = (price_now <= stop) if (acao == "COMPRAR" and stop is not None) else \
+                          (price_now >= stop) if (acao == "VENDER" and stop is not None) else False
+            passou_alvo = (price_now >= alvo) if (acao == "COMPRAR" and alvo is not None) else \
+                          (price_now <= alvo) if (acao == "VENDER" and alvo is not None) else False
+            if passou_stop:
+                linhas.append("   ⚠️ O preço já passou do stop dessa operação.")
+            elif passou_alvo:
+                linhas.append("   ✅ O preço já passou do alvo dessa operação.")
+            else:
+                linhas.append("   Ainda entre o stop e o alvo — operação segue em aberto.")
+
+    return "\n".join(linhas)
 
 
 # ----------------------------------------------------------------------------
@@ -3161,7 +3399,7 @@ def select_core_extra_altcoins(watchlist, sinais_por_moeda, diagnosticos_lista_p
     return candidatos[:n]
 
 
-def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend="neutra"):
+def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend="neutra", memoria_anterior=None):
     """
     Mensagem única mandada em TODA rodada horária, só pros símbolos "core"
     (ver select_core_extra_altcoins) — em vez de mensagem solta pra
@@ -3172,6 +3410,7 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
     formando (tipo RSI caindo no 15m perto de uma zona relevante no 4h)
     antes dele virar sinal de verdade.
     """
+    memoria_anterior = memoria_anterior or {}
     nomes_core = ", ".join(s.replace("USDT", "") for s in core_symbols)
     titulo = f"🔭 VELA MONITOR — STATUS ({nomes_core})"
     if market_trend in ("alta", "baixa"):
@@ -3199,6 +3438,9 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
                 bloco.append(f"  {cenario['bear']}")
             if not diags and not cenario:
                 bloco.append("Sem setup próximo e sem dado suficiente pro cenário agora.")
+            price_now = cenario["price_now"] if cenario else (candles_d[-1]["close"] if candles_d else None)
+            bloco.append("")
+            bloco.append(_ultima_operacao_texto(memoria_anterior.get(symbol), price_now))
             partes.append("\n".join(bloco))
     partes.append("Leitura técnica automática — não é recomendação de investimento.")
     return "\n\n".join(partes)
@@ -3473,7 +3715,13 @@ def main():
         except Exception as e:
             print(f"  erro buscando candle diário de {sym} ({e})")
     try:
-        status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend=market_trend)
+        memoria_anterior = atualiza_memoria_ultima_operacao(sinais_por_moeda)
+    except Exception as e:
+        print(f"  erro atualizando a memória da última operação ({e})")
+        memoria_anterior = {}
+
+    try:
+        status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend=market_trend, memoria_anterior=memoria_anterior)
         ok = send_telegram_message(status_msg)
         print("  -> status core enviado" if ok else "  -> FALHOU ao enviar o status core")
     except Exception as e:
