@@ -2285,8 +2285,7 @@ def build_diagnostic_message(diagnosticos):
                 melhor_por_moeda[d["symbol"]] = d
         ordenados = sorted(melhor_por_moeda.values(), key=lambda d: d["score"])[:DIAGNOSTIC_TOP_N]
         for d in ordenados:
-            sym = d["symbol"].replace("USDT", "/USDT")
-            linhas.append(f"• {sym} — {d['texto']}")
+            linhas.append(f"• {_fmt_symbol(d['symbol'])} — {d['texto']}")
     linhas.append("")
     linhas.append(
         "Isso é uma régua de proximidade pras mesmas regras dos sinais de verdade "
@@ -2332,7 +2331,7 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         return f"⚠️ Não veio nenhum candle 4h pra {symbol} — confira se o par existe."
 
     price_now = candles_4h[-1]["close"]
-    linhas = [f"🧭 VELA MONITOR — ANÁLISE — {symbol.replace('USDT', '/USDT')}", "",
+    linhas = [f"🧭 VELA MONITOR — ANÁLISE — {_fmt_symbol(symbol)}", "",
               f"Preço agora: {fmt_price(price_now)}"]
     if market_trend in ("alta", "baixa"):
         linhas.append(f"Tendência majoritária do mercado (BTC, diário): {market_trend}")
@@ -3087,7 +3086,7 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
         titulo += f"\nTendência majoritária do mercado (BTC, diário): {market_trend}"
     partes = [titulo]
     for symbol in core_symbols:
-        nome = symbol.replace("USDT", "/USDT")
+        nome = _fmt_symbol(symbol)
         sinais = sinais_por_moeda.get(symbol) or []
         if len(sinais) > 1:
             partes.append(format_combined_signal_message(symbol, sinais))
@@ -3171,7 +3170,7 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
                 sinais = []
         if sinais:
             sig = sinais[0]
-            destaques.append(f"• {symbol.replace('USDT', '/USDT')}: {sig['titulo']} ({sig['acao']}, {sig['timeframe']}).")
+            destaques.append(f"• {_fmt_symbol(symbol)}: {sig['titulo']} ({sig['acao']}, {sig['timeframe']}).")
     if destaques:
         linhas.extend(destaques)
     else:
@@ -3189,7 +3188,7 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
             pequenas.append((symbol, sinais[0]))
     if pequenas:
         for symbol, sig in pequenas[:REPORT_SMALL_ALTS_N]:
-            linhas.append(f"• {symbol.replace('USDT', '/USDT')}: {sig['titulo']} ({sig['acao']}, {sig['timeframe']}).")
+            linhas.append(f"• {_fmt_symbol(symbol)}: {sig['titulo']} ({sig['acao']}, {sig['timeframe']}).")
     else:
         linhas.append("• Nenhuma altcoin pequena com setup ativo agora.")
     linhas.append("")
@@ -3203,7 +3202,7 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
                 scalps.append((symbol, sig))
     if scalps:
         for symbol, sig in scalps[:REPORT_SCALP_N]:
-            linhas.append(f"• {symbol.replace('USDT', '/USDT')}: {sig['titulo']} ({sig['acao']}).")
+            linhas.append(f"• {_fmt_symbol(symbol)}: {sig['titulo']} ({sig['acao']}).")
     else:
         linhas.append("• Nenhum scalp ativo agora.")
     linhas.append("")
@@ -3218,7 +3217,7 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
     bottoms.sort(key=lambda item: _tier_rank(tiers.get(item[0])))
     if bottoms:
         for symbol, sig in bottoms[:REPORT_BOTTOM_FISHING_N]:
-            linhas.append(f"• {symbol.replace('USDT', '/USDT')}: {sig['titulo']} — porte: {tiers.get(symbol, '?')}.")
+            linhas.append(f"• {_fmt_symbol(symbol)}: {sig['titulo']} — porte: {tiers.get(symbol, '?')}.")
     else:
         linhas.append("• Nenhuma moeda batendo o critério de bottom fishing agora.")
     linhas.append("")
