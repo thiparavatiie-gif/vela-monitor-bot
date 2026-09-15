@@ -71,6 +71,20 @@
 #      combinação de vários sim. A mensagem também traz uma linha de
 #      invalidação (o que costuma acontecer se o stop for rompido).
 #
+#  FILTROS DE QUALIDADE (valem pra TODO sinal COMPRAR/VENDER de qualquer um
+#  dos 9 sinais acima, não é mais um sinal isolado):
+#
+#   a) Risco/retorno mínimo de 1:2 — o alvo técnico tem que valer pelo menos
+#      o dobro da distância até o stop. Sinal que bate o critério técnico
+#      mas fica abaixo disso é suprimido (não é enviado), e vira um
+#      diagnóstico explicando o motivo.
+#   b) Tendência majoritária do mercado — calculada a partir do BTC no
+#      diário (EMA50 e EMA200) uma vez por rodada. Sinal de VENDER com o
+#      mercado em tendência de alta clara (ou de COMPRAR com o mercado em
+#      tendência de baixa clara) é suprimido pelo mesmo motivo — "remar
+#      contra a maré" tende a dar errado mesmo quando o setup local parece
+#      certo. Mercado sem tendência clara (neutro) não filtra nada.
+#
 #  Cada mensagem de sinal vem com um checklist (✅/❌) dos itens que
 #  confirmaram aquele setup (RSI, volume, estrutura, EMA de contexto) e,
 #  quando fizer sentido, um alvo técnico de lucro (próximo topo/fundo
@@ -645,6 +659,121 @@ def ascending_or_descending_bottoms(leg, pivot_highs, pivot_lows, min_count=MIN_
 
 
 # ----------------------------------------------------------------------------
+# FILTROS DE QUALIDADE DE ENTRADA — risco/retorno mínimo e tendência
+# majoritária do mercado
+#
+# Dois critérios que os videos do Diego tratam como obrigatórios antes de
+# qualquer entrada valer a pena, e que agora se aplicam a TODO sinal
+# COMPRAR/VENDER, não só a um check isolado:
+#
+#  1) Risco/retorno mínimo de 1:2 — arriscar 1% no stop pra mirar só 1% de
+#     lucro no alvo não compensa (o preço não precisa nem acertar metade
+#     das vezes pra você perder dinheiro no longo prazo). O alvo técnico
+#     tem que valer pelo menos o dobro da distância até o stop.
+#  2) Tendência majoritária do mercado — "remar contra a maré" (entrar
+#     vendido com o mercado em tendência de alta clara, ou comprado com o
+#     mercado em tendência de baixa clara) tende a dar errado mesmo quando
+#     o setup técnico local parece certo. A tendência é calculada a partir
+#     do BTC no diário (referência do mercado como um todo), uma vez por
+#     rodada, e vale pra todas as moedas.
+#
+# Sinais que não passam num desses dois filtros não são enviados — mas
+# viram um diagnóstico explicando o motivo, em vez de simplesmente sumir.
+# ----------------------------------------------------------------------------
+
+MIN_REWARD_RISK_RATIO = 2.0   # lucro no alvo tem que ser pelo menos 2x o risco do stop
+MARKET_TREND_EMA_FAST = 50
+MARKET_TREND_EMA_SLOW = 200
+
+
+def _reward_risk_ok(entry, alvo, stop, min_ratio=MIN_REWARD_RISK_RATIO):
+    """(ok: bool, ratio: float|None) — ratio é lucro potencial / risco."""
+    if entry is None or alvo is None or stop is None:
+        return True, None  # sem dados suficientes pra checar — deixa passar
+    risco = abs(entry - stop)
+    retorno = abs(alvo - entry)
+    if risco <= 0:
+        return False, None
+    ratio = retorno / risco
+    return ratio >= min_ratio, ratio
+
+
+def detect_market_trend(candles_d):
+    """
+    Tendência majoritária do mercado a partir do BTC no diário: preço e
+    EMA50 alinhados acima da EMA200 = tendência de alta; o inverso =
+    tendência de baixa; qualquer combinação misturada = neutra (sem
+    tendência clara o suficiente pra filtrar nada).
+    """
+    if len(candles_d) < MARKET_TREND_EMA_SLOW + 5:
+        return "neutra"
+    closes = [c["close"] for c in candles_d]
+    ema_fast = compute_ema(closes, MARKET_TREND_EMA_FAST)
+    ema_slow = compute_ema(closes, MARKET_TREND_EMA_SLOW)
+    if ema_fast is None or ema_slow is None:
+        return "neutra"
+    price_now = closes[-1]
+    if price_now > ema_fast > ema_slow:
+        return "alta"
+    if price_now < ema_fast < ema_slow:
+        return "baixa"
+    return "neutra"
+
+
+def _alinhado_com_tendencia(acao, market_trend):
+    if market_trend == "alta" and acao == "VENDER":
+        return False
+    if market_trend == "baixa" and acao == "COMPRAR":
+        return False
+    return True
+
+
+def aplica_filtros_qualidade(sinais, market_trend, diagnosticos_extra=None):
+    """
+    Aplica os dois filtros (risco/retorno e tendência) numa lista de sinais
+    já disparados. Sinais suprimidos viram diagnóstico (se `diagnosticos_extra`
+    for passado) explicando exatamente por que não foram enviados.
+    """
+    mantidos = []
+    for sig in sinais:
+        if not _alinhado_com_tendencia(sig["acao"], market_trend):
+            if diagnosticos_extra is not None:
+                diagnosticos_extra.append({
+                    "symbol": sig["symbol"],
+                    "tipo": sig["titulo"],
+                    "score": 0.01,
+                    "texto": (
+                        f"Bateu os critérios técnicos de \"{sig['titulo']}\" ({sig['acao']}), mas "
+                        f"na direção contrária à tendência majoritária do mercado (BTC em "
+                        f"tendência de {market_trend} no diário) — suprimido pra não sugerir "
+                        f"operar contra a maré."
+                    ),
+                })
+            continue
+
+        ok, ratio = _reward_risk_ok(sig.get("entry_price"), sig.get("target_price"), sig.get("stop_price"))
+        if not ok:
+            if diagnosticos_extra is not None:
+                ratio_txt = f"1:{ratio:.1f}" if ratio is not None else "indefinido"
+                diagnosticos_extra.append({
+                    "symbol": sig["symbol"],
+                    "tipo": sig["titulo"],
+                    "score": 0.01,
+                    "texto": (
+                        f"Bateu os critérios técnicos de \"{sig['titulo']}\" ({sig['acao']}), mas o "
+                        f"risco/retorno ficou em {ratio_txt} — abaixo do mínimo de "
+                        f"1:{MIN_REWARD_RISK_RATIO:.0f} pra valer a pena a entrada. Suprimido."
+                    ),
+                })
+            continue
+
+        if ratio is not None:
+            sig["reward_risk_ratio"] = ratio
+        mantidos.append(sig)
+    return mantidos
+
+
+# ----------------------------------------------------------------------------
 # SINAL 1 — PULLBACK (swing)
 # ----------------------------------------------------------------------------
 
@@ -701,17 +830,30 @@ def check_pullback(symbol, candles):
         segurando = price_now >= ema if leg["direction"] == "alta" else price_now <= ema
         checklist.append((f"Preço {'acima' if leg['direction'] == 'alta' else 'abaixo'} da EMA{EMA_TREND_PERIOD} ({fmt_price(ema)})", segurando))
 
+    resumo = (
+        f"Corrigiu ao 0.382 da perna {fmt_price(leg['start_price'])}→{fmt_price(leg['end_price'])} "
+        f"({fmt_price(fib_price)}) com {estrutura_txt} e o {INTERVAL} confirmou."
+    )
+    direcao_txt = "recuando desde a máxima" if leg["direction"] == "alta" else "subindo desde a mínima"
+    retomada_txt = (
+        "possível retomada da tendência de alta vigente" if leg["direction"] == "alta"
+        else "possível continuidade da tendência de baixa vigente"
+    )
+    explicacao = (
+        f"O {_fmt_symbol(symbol)} vem {direcao_txt} de {fmt_price(leg['end_price'])}, testando a região de "
+        f"{fmt_price(fib_price)} após a perna {leg_txt}. Corrigiu até a zona de Fibonacci 0.382 dessa perna "
+        f"com {estrutura_txt} confirmando no {INTERVAL} — o pullback confirmado sugere {retomada_txt}."
+    )
+
     return {
         "symbol": symbol, "estilo": "SWING", "acao": acao,
         "titulo": f"Pullback ({leg['direction']}, {leg_txt})",
         "timeframe": INTERVAL,
         "detalhes": detalhes,
         "checklist": checklist,
-        "explicacao": (
-            f"Correção dentro da zona de Fibonacci 0.382 da última perna de "
-            f"{leg['direction']}, com {estrutura_txt} confirmando que a estrutura "
-            f"continua a favor do movimento."
-        ),
+        "entry_price": price_now, "target_price": targets[0], "target_prices": targets, "stop_price": stop,
+        "resumo": resumo,
+        "explicacao": explicacao,
         "aviso": aviso,
     }
 
@@ -738,15 +880,24 @@ def check_exhaustion_climax(symbol, candles):
 
     price_now = candles[-1]["close"]
     pivot_highs, pivot_lows = find_pivots(candles, PIVOT_LEN)
+
+    alvo = None
+    if acao == "VENDER" and pivot_lows:
+        alvo = pivot_lows[-1][1]
+    elif acao == "COMPRAR" and pivot_highs:
+        alvo = pivot_highs[-1][1]
+    if alvo is None:
+        return None  # sem alvo técnico pra checar risco/retorno, não dá pra confirmar que vale a entrada
+
+    stop = avoid_round_number_stop(price_now * (1.015 if acao == "VENDER" else 0.985), "venda" if acao == "VENDER" else "compra")
+
     detalhes = [
         f"Preço agora: {fmt_price(price_now)}",
         f"RSI ({INTERVAL}): {rsi:.1f}",
         f"Volume: {vol_ratio:.1f}x a média",
+        f"Alvo técnico: {fmt_price(alvo)} (último {'fundo' if acao == 'VENDER' else 'topo'} relevante no {INTERVAL})",
+        f"Stop sugerido: {fmt_price(stop)}",
     ]
-    if acao == "VENDER" and pivot_lows:
-        detalhes.append(f"Alvo técnico: {fmt_price(pivot_lows[-1][1])} (último fundo relevante no {INTERVAL})")
-    elif acao == "COMPRAR" and pivot_highs:
-        detalhes.append(f"Alvo técnico: {fmt_price(pivot_highs[-1][1])} (último topo relevante no {INTERVAL})")
 
     checklist = [
         (f"RSI esticado ({rsi:.1f})", True),
@@ -759,6 +910,8 @@ def check_exhaustion_climax(symbol, candles):
         "timeframe": INTERVAL,
         "detalhes": detalhes,
         "checklist": checklist,
+        "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "resumo": f"RSI esticado em {rsi:.1f} com volume {vol_ratio:.1f}x a média — clímax de {lado} no {INTERVAL}.",
         "explicacao": (
             f"RSI muito esticado ({rsi:.1f}) combinado com volume {vol_ratio:.1f}x acima "
             f"da média costuma marcar exaustão do movimento — a força predominante "
@@ -787,14 +940,23 @@ def check_scalp_cascade(symbol, candles_15m, candles_1h):
 
     price_now = candles_15m[-1]["close"]
     pivot_highs_1h, pivot_lows_1h = find_pivots(candles_1h, PIVOT_LEN)
+
+    alvo = None
+    if acao == "VENDER" and pivot_lows_1h:
+        alvo = pivot_lows_1h[-1][1]
+    elif acao == "COMPRAR" and pivot_highs_1h:
+        alvo = pivot_highs_1h[-1][1]
+    if alvo is None:
+        return None  # sem alvo técnico pra checar risco/retorno, não dá pra confirmar que vale a entrada
+
+    stop = avoid_round_number_stop(price_now * (1.01 if acao == "VENDER" else 0.99), "venda" if acao == "VENDER" else "compra")
+
     detalhes = [
         f"Preço agora: {fmt_price(price_now)}",
         f"RSI 15m: {rsi_15m:.1f}  |  RSI 1h: {rsi_1h:.1f}",
+        f"Alvo técnico: {fmt_price(alvo)} (último {'fundo' if acao == 'VENDER' else 'topo'} no 1h)",
+        f"Stop sugerido: {fmt_price(stop)}",
     ]
-    if acao == "VENDER" and pivot_lows_1h:
-        detalhes.append(f"Alvo técnico: {fmt_price(pivot_lows_1h[-1][1])} (último fundo no 1h)")
-    elif acao == "COMPRAR" and pivot_highs_1h:
-        detalhes.append(f"Alvo técnico: {fmt_price(pivot_highs_1h[-1][1])} (último topo no 1h)")
 
     checklist = [
         (f"RSI 15m em {lado} ({rsi_15m:.1f})", True),
@@ -807,6 +969,8 @@ def check_scalp_cascade(symbol, candles_15m, candles_1h):
         "timeframe": "15m + 1h",
         "detalhes": detalhes,
         "checklist": checklist,
+        "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "resumo": f"RSI em {lado} ao mesmo tempo no 15m ({rsi_15m:.1f}) e no 1h ({rsi_1h:.1f}) — cascata fractal.",
         "explicacao": (
             "Os dois timeframes curtos em " + lado + " ao mesmo tempo — pela lógica "
             "da cascata fractal, isso tende a antecipar um repique/correção rápida "
@@ -851,11 +1015,13 @@ def check_bottom_fishing(symbol, candles_d, candles_w, tier=None):
 
     stop = avoid_round_number_stop(min(prices) * 0.97, "compra")
     entry_low, entry_high = min(prices), max(price_now, max(prices))
+    alvo = next((p for _, p in reversed(pivot_highs_d) if p > price_now), ath)
 
     detalhes = [
         f"Preço agora: {fmt_price(price_now)}",
         f"Máxima histórica: {fmt_price(ath)}  ({drawdown * 100:.0f}% abaixo)",
         f"Zona de entrada sugerida: {fmt_price(entry_low)} – {fmt_price(entry_high)}",
+        f"Alvo técnico: {fmt_price(alvo)} (próxima resistência relevante)",
         f"Stop sugerido: {fmt_price(stop)}",
     ]
     if tier:
@@ -881,6 +1047,8 @@ def check_bottom_fishing(symbol, candles_d, candles_w, tier=None):
         "timeframe": "1w (máxima) + 1d (estrutura)",
         "detalhes": detalhes,
         "checklist": checklist,
+        "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "resumo": f"{drawdown * 100:.0f}% abaixo da máxima histórica ({fmt_price(ath)}) com fundos ascendentes confirmando no diário.",
         "explicacao": (
             f"Moeda {drawdown * 100:.0f}% abaixo da máxima histórica e formando fundos "
             f"ascendentes no diário — indício de que uma base de longo prazo pode "
@@ -929,11 +1097,13 @@ def check_light_reversal(symbol, candles_d, tier=None):
 
     stop = avoid_round_number_stop(min(prices) * 0.97, "compra")
     entry_low, entry_high = min(prices), max(price_now, max(prices))
+    alvo = swing_high_price
 
     detalhes = [
         f"Preço agora: {fmt_price(price_now)}",
         f"Topo dos últimos {lookback}d: {fmt_price(swing_high_price)}  ({drawdown * 100:.0f}% abaixo)",
         f"Zona de entrada sugerida: {fmt_price(entry_low)} – {fmt_price(entry_high)}",
+        f"Alvo técnico: {fmt_price(alvo)} (topo que iniciou a correção)",
         f"Stop sugerido: {fmt_price(stop)}",
     ]
     if tier:
@@ -953,6 +1123,8 @@ def check_light_reversal(symbol, candles_d, tier=None):
         "timeframe": f"1d ({lookback}d)",
         "detalhes": detalhes,
         "checklist": checklist,
+        "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "resumo": f"Correção de {drawdown * 100:.0f}% desde o topo dos últimos {lookback}d ({fmt_price(swing_high_price)}) com fundos ascendentes formando base.",
         "explicacao": (
             f"Correção de {drawdown * 100:.0f}% desde o topo dos últimos {lookback} dias, "
             f"com fundos ascendentes formando uma base nítida — padrão de reversão "
@@ -1092,6 +1264,8 @@ def check_failed_breakout_reversal(symbol, candles):
                         ("Recuperação de volta pra cima do nível", True),
                         (f"Volume forte no rompimento/recuperação (≥{FAILED_BREAK_VOLUME_RATIO}x)", True),
                     ],
+                    "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+                    "resumo": f"Rompeu o suporte em {fmt_price(ref_price)} sem continuidade e já recuperou, com volume forte.",
                     "explicacao": (
                         f"O preço rompeu o suporte em {fmt_price(ref_price)} mas não teve "
                         f"continuidade de queda — já recuperou de volta pra cima do "
@@ -1132,6 +1306,8 @@ def check_failed_breakout_reversal(symbol, candles):
                         ("Devolução de volta pra dentro do nível", True),
                         (f"Volume forte no rompimento/devolução (≥{FAILED_BREAK_VOLUME_RATIO}x)", True),
                     ],
+                    "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+                    "resumo": f"Rompeu a resistência em {fmt_price(ref_price)} sem continuidade e já devolveu, com volume forte.",
                     "explicacao": (
                         f"O preço rompeu a resistência em {fmt_price(ref_price)} mas não teve "
                         f"continuidade de alta — já devolveu pra dentro do nível com "
@@ -1262,6 +1438,8 @@ def check_range_market(symbol, candles):
             f"Stop sugerido: {fmt_price(stop)}",
         ],
         "checklist": checklist,
+        "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "resumo": f"Mercado em range ({range_pct * 100:.1f}% de amplitude), preço {lado_txt}.",
         "explicacao": (
             f"Sem tendência clara — os últimos candles ficaram comprimidos numa faixa "
             f"estreita ({range_pct * 100:.1f}% de amplitude). Quando não tem direção "
@@ -1429,6 +1607,8 @@ def check_confluence(symbol, candles_4h, candles_15m, candles_1h, candles_5m=Non
         "timeframe": "4h + 15m + 1h" + (" + 5m" if candles_5m else ""),
         "detalhes": detalhes,
         "checklist": [(f, True) for f in fatores],
+        "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "resumo": f"{len(fatores)} fatores técnicos alinhados na mesma direção (fibonacci, EMA, RSI).",
         "explicacao": (
             f"{len(fatores)} indicadores técnicos diferentes (fibonacci, EMA e RSI, em "
             f"mais de um timeframe) alinhados na mesma direção ao mesmo tempo — "
@@ -1802,7 +1982,7 @@ def normalize_symbol(raw):
     return s
 
 
-def build_symbol_deep_dive(symbol_input):
+def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
     symbol = normalize_symbol(symbol_input)
     if not symbol:
         return "⚠️ Não veio nenhuma moeda no campo de análise."
@@ -1826,6 +2006,8 @@ def build_symbol_deep_dive(symbol_input):
     price_now = candles_4h[-1]["close"]
     linhas = [f"🧭 VELA MONITOR — ANÁLISE — {symbol.replace('USDT', '/USDT')}", "",
               f"Preço agora: {fmt_price(price_now)}"]
+    if market_trend in ("alta", "baixa"):
+        linhas.append(f"Tendência majoritária do mercado (BTC, diário): {market_trend}")
 
     sinais_ativos = []
     for fn in (check_pullback, check_exhaustion_climax, check_failed_breakout_reversal, check_range_market):
@@ -1872,6 +2054,8 @@ def build_symbol_deep_dive(symbol_input):
         diagnose_light_reversal(candles_d) if candles_d else None,
         diagnose_confluence(candles_4h, candles_15m, candles_1h, candles_5m) if (candles_15m and candles_1h) else None,
     ) if d]
+
+    sinais_ativos = aplica_filtros_qualidade(sinais_ativos, market_trend, diagnosticos_extra=diagnosticos)
 
     contexto_txt = None
     if symbol != "BTCUSDT" and candles_d:
@@ -1967,27 +2151,64 @@ def _checklist_linhas(checklist):
     return linhas
 
 
+def _render_signal_core(sig, indent=""):
+    """
+    Bloco central de UM sinal, no formato enxuto tipo "cartão de operação":
+    📍 entrada, 🛑 stop, 🎯 alvo(s), 💡 resumo de uma linha do motivo técnico,
+    💰 preço agora, 🧠 explicação com contexto, e ⚠️ alerta quando tiver.
+    Compartilhado entre a mensagem de sinal único e a combinada — só muda a
+    indentação (usada quando o bloco entra dentro de uma mensagem maior).
+    """
+    entry = sig.get("entry_price")
+    stop = sig.get("stop_price")
+    alvo = sig.get("target_price")
+    alvos_lista = sig.get("target_prices")
+
+    linhas = [f"{indent}📍 Entrada: a mercado"]
+    if stop is not None:
+        linhas.append(f"{indent}🛑 Stop sugerido: {fmt_price(stop)}")
+    if alvos_lista:
+        linhas.append(f"{indent}🎯 Alvos: {' > '.join(fmt_price(t) for t in alvos_lista)}")
+    elif alvo is not None:
+        linhas.append(f"{indent}🎯 Alvo: {fmt_price(alvo)}")
+    if sig.get("reward_risk_ratio") is not None:
+        linhas.append(f"{indent}📊 Risco/retorno: 1:{sig['reward_risk_ratio']:.1f}")
+    if sig.get("resumo"):
+        linhas.append(f"{indent}💡 {sig['resumo']}")
+    if entry is not None:
+        linhas.append(f"{indent}💰 Preço agora: {fmt_price(entry)}")
+
+    linhas.append("")
+    linhas.append(f"{indent}🧠 {sig['explicacao']}")
+
+    if sig.get("aviso"):
+        linhas.append("")
+        linhas.append(f"{indent}⚠️ Alerta: {sig['aviso']}")
+
+    checklist_linhas = _checklist_linhas(sig.get("checklist"))
+    if checklist_linhas:
+        linhas.extend(f"{indent}{l}" if l else indent.rstrip() for l in checklist_linhas)
+
+    return linhas
+
+
 def format_signal_message(sig):
     """
-    Mensagem de UM sinal, formato enxuto e direto: ação + moeda no topo,
-    número (entrada/alvo/stop) logo abaixo, checklist do que confirmou o
-    sinal, e só depois a explicação — pra dar pra ler em 5 segundos e ainda
-    ter os detalhes de quem quiser conferir.
+    Mensagem de UM sinal, no formato "cartão de operação": ação + moeda +
+    setup no topo, entrada/stop/alvo(s) logo abaixo, o motivo técnico numa
+    linha, o preço agora, e um parágrafo de contexto — pra dar pra ler em
+    5 segundos e ainda ter os detalhes de quem quiser conferir.
     """
     emoji = _acao_emoji(sig["acao"])
     sym = _fmt_symbol(sig["symbol"])
+    acao_txt = f"{sig['acao']} AGORA" if sig["acao"] in ("COMPRAR", "VENDER") else sig["acao"]
 
     linhas = [
-        f"{emoji} {sig['acao']} — {sym}",
-        f"{sig['estilo']} · {sig['titulo']} · {sig['timeframe']}",
-        "",
+        "VELA MONITOR", "",
+        f"{emoji} {acao_txt} — {sym} ({sig['titulo']})",
+        "─" * 24,
     ]
-    linhas.extend(sig["detalhes"])
-    linhas.extend(_checklist_linhas(sig.get("checklist")))
-    linhas.append("")
-    linhas.append(f"Por quê: {sig['explicacao']}")
-    if sig.get("aviso"):
-        linhas.append(f"⚠️ {sig['aviso']}")
+    linhas.extend(_render_signal_core(sig))
     linhas.append("")
     linhas.append("Leitura técnica automática — não é recomendação de investimento.")
     return "\n".join(linhas)
@@ -2000,7 +2221,7 @@ def format_combined_signal_message(symbol, sinais):
     pra cada estratégia (o que no Telegram parecia "operação clonada").
     """
     sym = _fmt_symbol(symbol)
-    linhas = [f"🧩 {sym} bateu {len(sinais)} estratégias ao mesmo tempo", ""]
+    linhas = ["VELA MONITOR", "", f"🧩 {sym} bateu {len(sinais)} estratégias ao mesmo tempo", ""]
     acoes = {s["acao"] for s in sinais}
     if len(acoes) > 1:
         linhas.append("⚠️ Atenção: as estratégias abaixo sugerem lados opostos (compra x venda) — é conflito, não reforço.")
@@ -2008,10 +2229,10 @@ def format_combined_signal_message(symbol, sinais):
 
     for sig in sinais:
         emoji = _acao_emoji(sig["acao"])
-        linhas.append(f"{emoji} {sig['acao']} — {sig['estilo']} · {sig['titulo']} ({sig['timeframe']})")
-        for d in sig["detalhes"]:
-            linhas.append(f"    {d}")
-        linhas.extend(f"  {l}" if l else "" for l in _checklist_linhas(sig.get("checklist")))
+        acao_txt = f"{sig['acao']} AGORA" if sig["acao"] in ("COMPRAR", "VENDER") else sig["acao"]
+        linhas.append(f"{emoji} {acao_txt} · {sig['estilo']} · {sig['titulo']} ({sig['timeframe']})")
+        linhas.append("─" * 20)
+        linhas.extend(_render_signal_core(sig, indent="  "))
         linhas.append("")
 
     if len(acoes) == 1:
@@ -2052,7 +2273,7 @@ def send_telegram_message(text):
 # coleta diagnósticos de proximidade (near-miss) pra quem não disparou nada
 # ----------------------------------------------------------------------------
 
-def analyze_symbol(symbol, tier=None):
+def analyze_symbol(symbol, tier=None, market_trend="neutra"):
     sinais = []
     diagnosticos = []
     candles_4h = fetch_klines(symbol, INTERVAL, KLINES_LIMIT)
@@ -2168,6 +2389,7 @@ def analyze_symbol(symbol, tier=None):
         except Exception as e:
             print(f"  {symbol}: erro no check de reversão leve ({e})")
 
+    sinais = aplica_filtros_qualidade(sinais, market_trend, diagnosticos_extra=diagnosticos)
     return sinais, diagnosticos
 
 
@@ -2461,7 +2683,7 @@ def select_core_extra_altcoins(watchlist, sinais_por_moeda, diagnosticos_lista_p
     return candidatos[:n]
 
 
-def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra):
+def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend="neutra"):
     """
     Mensagem única mandada em TODA rodada horária, só pros símbolos "core"
     (ver select_core_extra_altcoins) — em vez de mensagem solta pra
@@ -2472,7 +2694,11 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
     formando (tipo RSI caindo no 15m perto de uma zona relevante no 4h)
     antes dele virar sinal de verdade.
     """
-    partes = ["🔭 VELA MONITOR — STATUS (BTC, ETH, XRP + destaques)"]
+    nomes_core = ", ".join(s.replace("USDT", "") for s in core_symbols)
+    titulo = f"🔭 VELA MONITOR — STATUS ({nomes_core})"
+    if market_trend in ("alta", "baixa"):
+        titulo += f"\nTendência majoritária do mercado (BTC, diário): {market_trend}"
+    partes = [titulo]
     for symbol in core_symbols:
         nome = symbol.replace("USDT", "/USDT")
         sinais = sinais_por_moeda.get(symbol) or []
@@ -2500,7 +2726,7 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
     return "\n\n".join(partes)
 
 
-def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra=None):
+def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra=None, market_trend="neutra"):
     """
     Organiza o que a varredura já achou por horizonte de operação, em vez de
     mandar sinal solto: swing principal (BTC/ETH sempre aparecem), swing
@@ -2511,6 +2737,9 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
     """
     candles_d_extra = candles_d_extra or {}
     linhas = ["📊 VELA MONITOR — RELATÓRIO DO DIA (swing)", ""]
+    if market_trend in ("alta", "baixa"):
+        linhas.append(f"Tendência majoritária do mercado (BTC, diário): {market_trend}")
+        linhas.append("")
 
     # 1) Swing principal — BTC e ETH sempre aparecem
     linhas.append("🏆 SWING PRINCIPAL")
@@ -2531,7 +2760,7 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
         sinais = sinais_por_moeda.get(symbol)
         if sinais is None:
             try:
-                sinais, _ = analyze_symbol(symbol, tier=tiers.get(symbol))
+                sinais, _ = analyze_symbol(symbol, tier=tiers.get(symbol), market_trend=market_trend)
             except Exception:
                 sinais = []
         if sinais:
@@ -2619,6 +2848,18 @@ def main():
     # CORE_SYMBOLS (BTC e ETH).
     do_full_scan = is_report_time or (is_manual and not symbol_query)
 
+    # Tendência majoritária do mercado (a partir do BTC no diário) — calculada
+    # uma vez por rodada e aplicada a TODO sinal COMPRAR/VENDER de toda moeda,
+    # pra nunca sugerir operar contra a maré (ex.: sinal de venda com o
+    # mercado em tendência de alta clara).
+    try:
+        btc_candles_trend = fetch_klines("BTCUSDT", "1d", MARKET_TREND_EMA_SLOW + 20)
+        market_trend = detect_market_trend(btc_candles_trend)
+    except Exception as e:
+        print(f"  erro calculando tendência majoritária do mercado ({e}) — seguindo sem filtro de tendência")
+        market_trend = "neutra"
+    print(f"[{datetime.now(timezone.utc).isoformat()}] Tendência majoritária do mercado (BTC, diário): {market_trend}")
+
     watchlist, tiers = [], {}
     sinais_por_moeda = {}
     todos_diagnosticos = []
@@ -2643,7 +2884,7 @@ def main():
               f"bottom fishing + reversão leve + rompimento falho + consolidação/range)...")
         for symbol in watchlist:
             try:
-                sinais, diagnosticos = analyze_symbol(symbol, tier=tiers.get(symbol))
+                sinais, diagnosticos = analyze_symbol(symbol, tier=tiers.get(symbol), market_trend=market_trend)
             except Exception as e:
                 print(f"  {symbol}: erro na análise ({e})")
                 continue
@@ -2694,7 +2935,7 @@ def main():
               f"— a varredura completa do watchlist só roda nos horários do relatório ou manualmente.")
         for symbol in CORE_SYMBOLS:
             try:
-                sinais, diagnosticos = analyze_symbol(symbol)
+                sinais, diagnosticos = analyze_symbol(symbol, market_trend=market_trend)
             except Exception as e:
                 print(f"  {symbol}: erro na análise ({e})")
                 continue
@@ -2724,7 +2965,7 @@ def main():
         except Exception as e:
             print(f"  erro buscando candle diário de {sym} ({e})")
     try:
-        status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra)
+        status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend=market_trend)
         ok = send_telegram_message(status_msg)
         print("  -> status core enviado" if ok else "  -> FALHOU ao enviar o status core")
     except Exception as e:
@@ -2733,7 +2974,7 @@ def main():
     if is_report_time:
         print(f"[{datetime.now(timezone.utc).isoformat()}] Horário de relatório categorizado — montando...")
         try:
-            report_msg = build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra)
+            report_msg = build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra, market_trend=market_trend)
             ok = send_telegram_message(report_msg)
             print("  -> relatório categorizado enviado" if ok else "  -> FALHOU ao enviar o relatório categorizado")
         except Exception as e:
@@ -2752,7 +2993,7 @@ def main():
         if symbol_query:
             print(f"[{datetime.now(timezone.utc).isoformat()}] Analisando moeda pedida: {symbol_query}")
             try:
-                deep_msg = build_symbol_deep_dive(symbol_query)
+                deep_msg = build_symbol_deep_dive(symbol_query, market_trend=market_trend)
             except Exception as e:
                 deep_msg = f"⚠️ Não consegui analisar {symbol_query}: {e}"
             ok = send_telegram_message(deep_msg)

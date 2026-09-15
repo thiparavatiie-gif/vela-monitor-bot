@@ -112,6 +112,35 @@ Arquivos deste pacote:
   4h — se estiver abaixo, o alerta ainda sai, mas com o aviso de "volume
   abaixo da média".
 
+## Filtros de qualidade de entrada (valem pra todo sinal)
+
+Dois critérios dos vídeos do Diego que agora se aplicam a **qualquer**
+sinal COMPRAR/VENDER, de qualquer uma das estratégias — não é mais um
+detalhe isolado de um sinal específico:
+
+- **Risco/retorno mínimo de 1:2** — o lucro potencial até o alvo técnico
+  tem que valer pelo menos o dobro do risco até o stop (`MIN_REWARD_RISK_RATIO`
+  no topo do script). Um sinal que bate todos os critérios técnicos mas
+  onde o alvo está perto demais do stop (por exemplo, arriscar 1% pra
+  mirar só 1% de lucro) não é enviado — mensagem por mensagem, o lucro
+  precisa compensar o risco, senão não vale a entrada mesmo acertando
+  menos da metade das vezes.
+- **Tendência majoritária do mercado** — calculada a partir do BTC no
+  diário (EMA50 acima da EMA200, com o preço acima das duas = tendência de
+  alta; o inverso = tendência de baixa; qualquer mistura = neutra, sem
+  filtro) uma vez por rodada, e vale pra todas as moedas. Um sinal de
+  VENDER com o mercado em tendência de alta clara (ou de COMPRAR com o
+  mercado em tendência de baixa) é suprimido — "remar contra a maré" tende
+  a dar errado mesmo quando o setup técnico local parece certo.
+
+Um sinal suprimido por qualquer um dos dois não simplesmente some: ele vira
+uma linha no diagnóstico ("bateu os critérios técnicos de X, mas..."),
+tanto no status horário quanto na consulta manual por moeda — pra você
+sempre saber por que uma leitura que parecia boa não virou alerta. A
+tendência majoritária também aparece no topo da mensagem de status, do
+relatório categorizado e da consulta por moeda, sempre que estiver definida
+(alta/baixa).
+
 ## Ajustes que você pode fazer direto no código
 
 - `WATCHLIST` — lista de moedas (linha ~35 do script).
@@ -156,12 +185,45 @@ batido — incluindo leituras como "suporte no 4h + 5m em sobrevenda extrema
 
 ## Mensagens mais diretas: checklist, alvo e sem duplicidade
 
-Cada alerta de sinal agora vem num formato mais enxuto — ação e moeda logo
-no topo, os números (entrada/alvo/stop) embaixo, e um **checklist** (✅/❌)
-mostrando o que confirmou aquele setup (RSI, volume, estrutura, e a EMA21
-como item extra de contexto). Os sinais de clímax de exaustão e cascata de
-scalp, que antes só davam stop, agora também trazem um **alvo técnico**
-(o próximo topo/fundo relevante no timeframe do sinal).
+Cada alerta de sinal agora vem no formato de **"cartão de operação"** — o
+mesmo estilo enxuto de ação + entrada + stop + alvo(s) + o porquê, pensado
+pra ler em poucos segundos:
+
+```
+VELA MONITOR
+
+🟢 COMPRAR AGORA — BTC/USDT (Pullback (alta, 67.000 → 82.283))
+────────────────────────
+📍 Entrada: a mercado
+🛑 Stop sugerido: 74.500
+🎯 Alvos: 82.283 > 86.440 > 91.728
+📊 Risco/retorno: 1:2.5
+💡 Corrigiu ao 0.382 da perna 67.000→82.283 (76.445) com fundos ascendentes e o 4h confirmou.
+💰 Preço agora: 76.720
+
+🧠 O BTC/USDT vem recuando desde a máxima de 82.283, testando a região de
+76.445 após a perna 67.000 → 82.283. Corrigiu até a zona de Fibonacci
+0.382 dessa perna com fundos ascendentes confirmando no 4h — o pullback
+confirmado sugere possível retomada da tendência de alta vigente.
+
+⚠️ Alerta: Volume atual está 55% da média — volume abaixo da média
+enfraquece o setup.
+
+Checklist:
+  ✅ Preço na zona de Fibonacci 0.382
+  ✅ Estrutura de fundos ascendentes confirmada
+  ❌ Volume no candle atual acima da média
+```
+
+📍 entrada, 🛑 stop, 🎯 alvo (ou os 3 alvos progressivos, só no pullback),
+📊 o risco/retorno calculado (ver seção de filtros acima), 💡 o motivo
+técnico resumido numa linha, 💰 o preço agora, 🧠 um parágrafo de contexto
+mais completo (o que o preço andou fazendo, não só o critério que bateu),
+⚠️ um alerta quando tiver algo que enfraquece o setup, e o **checklist**
+(✅/❌) do que confirmou aquele setup (RSI, volume, estrutura, e a EMA21
+como item extra de contexto) fechando a mensagem. Os sinais de clímax de
+exaustão e cascata de scalp, que antes só davam stop, agora também trazem
+um **alvo técnico** (o próximo topo/fundo relevante no timeframe do sinal).
 
 Quando a mesma moeda bate **duas estratégias ao mesmo tempo**, o bot manda
 uma única mensagem explicando isso ("bateu 2 estratégias"), com um aviso se
