@@ -302,6 +302,85 @@ confiável), mas é o 3º padrão mais recorrente até agora.
 
 ---
 
+### 6) Live "ao vivo" de 16/09/2026 (transcrição colada direto pelo Thiago no
+chat, sem título/URL — não veio de uma busca no canal)
+
+Contexto: BTC batendo na média de 200 períodos (diário) depois de uma queda
+no início da semana, formando uma bandeira de baixa — ele espera romper
+77.200 com volume pra invalidar essa bandeira. Pano de fundo do dia: decisão
+de juros dos EUA às 15h30 e o Clarity Act (projeto de regulação cripto) não
+aprovado no Senado no dia anterior, o que ele trata como ruído de curto
+prazo político (ligado à disputa partidária por causa dos ganhos do Trump em
+cripto), não como mudança de tendência de fundo.
+
+Conceitos/técnicas que aparecem (e o que já existe ou não no bot):
+
+- **Confirmação direta da estratégia de 4h em sobrevenda + parcial + stop no
+  zero a zero** — ele descreve a própria estratégia dele explicitamente:
+  entrar no primeiro toque do RSI de 4h em sobrevenda, fazer parciais
+  conforme o preço sobe, e mover o stop pro zero a zero, garantindo o lucro
+  já feito e deixando o resto correr. **→ bate exatamente com o que já foi
+  implementado nesta sessão** (`check_scalp_4h` + a sugestão de zero a zero
+  em `_ultima_operacao_texto`) — validação forte de que a leitura das lives
+  anteriores estava certa, sem precisar de nenhuma mudança de código.
+
+- **Mínima perdida sem continuidade de queda = bandeira de alta segue viva**
+  — ele repete explicitamente essa leitura no BTC do dia: perdeu a mínima
+  anterior, mas sem sequência de queda nenhuma, então trata isso como
+  confirmação de que a estrutura de alta (bandeira) continua válida — só
+  mudaria de leitura se confirmasse um novo rompimento de baixa com
+  continuidade. **→ já coberto, é a mesma lógica do sinal 6 do bot
+  (`check_failed_breakout_reversal`, reversão por rompimento falho)** —
+  primeira vez foi na live #1, reforçado também na #5 (com ONDO), e agora
+  de novo aqui, sempre alinhado com o que já está implementado.
+
+- **Segundo toque de RSI no 4h também vira suporte, mas o "movimento grande"
+  é sempre no primeiro toque** — ele comenta que o BTC bateu sobrevenda no
+  4h de novo (depois de já ter tido o primeiro toque antes), e que esse
+  novo toque também serve de referência de suporte, mas a estratégia dele
+  foca no primeiro toque porque é ali que historicamente vem o movimento
+  maior. **→ já coberto**: como `check_scalp_4h` não guarda estado entre
+  execuções, ele já dispara de novo naturalmente em qualquer novo primeiro
+  toque (o RSI saindo e voltando a entrar na zona conta como novo evento) —
+  não precisa de mudança.
+
+- **"Compra-se no pânico, numa tendência de alta"** — ideia de que notícia
+  negativa (tipo o Clarity Act falhando) que derruba o preço sem mudar a
+  estrutura de fundo é oportunidade de compra, não motivo de saída. É mais
+  filosofia de gestão/timing do que uma condição técnica objetiva — não dá
+  pra virar sinal sem um jeito de medir "pânico" de forma confiável
+  (poderia usar volume + RSI extremo, que já é parecido com o clímax de
+  exaustão, sinal 2). Anotado, sem ação imediata.
+
+- **Ombro-cabeça-ombro invertido citado como setup especulativo em tempos
+  gráficos curtos (2-5min)** — primeira menção desse padrão clássico de
+  reversão nas lives processadas até agora. Não está implementado (nenhum
+  sinal do bot detecta H&S/H&S invertido) — precisaria de bem mais desenho
+  técnico pra detectar de forma confiável (é um padrão de 3 pernas com
+  "neckline"). 1ª aparição, ainda não é candidato maduro.
+
+- **Triângulo ascendente citado como setup em TRX** — "forma base, não
+  perde a base" — parecido em espírito com o padrão de equilíbrio (sinal 8),
+  mas com a variação de que o fundo vai subindo em vez de ficar lateral.
+  1ª aparição, não é candidato maduro ainda (e além disso está fora do
+  escopo atual, que é só BTC/ETH por causa do `SOMENTE_CORE_SYMBOLS`).
+
+- **Alavancagem "de permissão" vs. alavancagem efetiva** — explicação de que
+  o número de alavancagem que você configura na corretora é só um limite
+  permitido, não a alavancagem de verdade (que depende de quanto do
+  capital total da conta está realmente em uso). É educação de gestão de
+  risco, não vira sinal — mas é uma boa nota pra qualquer texto educativo
+  futuro do bot/README.
+
+**Resumo de candidatos a melhoria dessa live**: nenhum candidato novo pronto
+pra código — o ponto mais importante foi a **validação direta** de que o
+sinal de 4h + zero a zero implementados nesta sessão batem exatamente com a
+estratégia real do canal. H&S invertido e triângulo ascendente ficam
+anotados como candidatos em potencial, mas com só 1 aparição cada (e H&S
+precisa de desenho técnico bem mais elaborado).
+
+---
+
 ## Padrões que já apareceram em mais de uma live (mais forte candidato a virar código)
 
 1. **RSI em sobrevenda/sobrecompra no 4h é o setup de maior convicção pra ele**
@@ -310,10 +389,13 @@ confiável), mas é o 3º padrão mais recorrente até agora.
    (`check_scalp_4h` / `diagnose_scalp_4h`, estilo SWING, stop 3%) —
    15/09/2026.
 2. **Sugestão de mover stop pra zero a zero após movimento favorável relevante**
-   — apareceu em 2 lives (#1 e #4). **✅ IMPLEMENTADO** — extensão de
+   — apareceu em 3 lives agora (#1, #4 e #6 — na #6 ele descreveu a própria
+   estratégia dele quase palavra por palavra: primeiro toque no 4h, parcial,
+   stop no zero a zero). **✅ IMPLEMENTADO** — extensão de
    `_ultima_operacao_texto` na memória da última operação: quando a operação
    ainda está aberta e o preço já andou 1R (`BREAKEVEN_STOP_R_MULT`) a favor,
-   sugere mover o stop pra entrada — 15/09/2026.
+   sugere mover o stop pra entrada — 15/09/2026, validado de novo em
+   16/09/2026.
 3. **Reteste de nível rompido (resistência virada suporte e vice-versa)** —
    apareceu em 2 lives (#1 e #5). Ainda precisa de mais desenho técnico (como
    detectar "rompeu recentemente" de forma confiável) antes de virar sinal.
@@ -324,8 +406,10 @@ confiável), mas é o 3º padrão mais recorrente até agora.
    2 (exaustão) com os outros sinais de COMPRA/VENDA em vez de tratá-los como
    independentes.
 6. **Sinais 2, 5, 6, 7 e 8 do bot já capturam frameworks que ele ensina**
-   (clímax de exaustão, dominância/altseason, rompimento falho, fase de ciclo
-   em 3 etapas, padrão de equilíbrio) — confirmado repetidamente, sem
+   (clímax de exaustão, dominância/altseason, rompimento falho — "mínima sem
+   continuidade de queda = bandeira de alta viva", confirmado 3x agora (#1,
+   #5, #6) —, fase de ciclo em 3 etapas, padrão de equilíbrio) — confirmado
+   repetidamente, sem
    necessidade de mudança. A ideia geral do bot (monitorar + filtrar os
    melhores sinais) também foi validada pelo "monitor de mercado" que ele
    descreve usar (live #4).
@@ -347,18 +431,24 @@ confiável), mas é o 3º padrão mais recorrente até agora.
 
 ## Progresso
 
-- Processadas: 5 de ~30+ (últimos ~2 meses) — canal tem mais de 100 lives no
-  total, indo bem mais pra trás no tempo. Amostragem espalhada no tempo (não
-  só lives consecutivas): 11/09, 10/09, 01/09, 20/08 e 14/08/2026 — cobrindo
-  correção/lateralização, disparada forte de alta, e uma live mais
-  multi-mercado (ações americanas, Ibovespa, dólar, ouro, além de cripto).
-- Candidata seguinte (ainda não processada): "Trade Ao Vivo! Análise do
-  Bitcoin, Altcoins e Mercado Internacional!" (ncl4n0dfK1Y, ~2 meses atrás).
-- 15/09/2026: implementados os 2 candidatos mais maduros — (1) sinal 4h de
-  primeiro toque de RSI (`check_scalp_4h`) e (2) sugestão de stop zero a zero
-  na memória da última operação. Os candidatos (3) reteste de nível rompido e
-  (5) cruzar exaustão com os outros sinais de compra/venda seguem em aberto,
-  pra quando aparecerem em mais lives ou o Thiago pedir pra avançar com eles.
+- Processadas: 6 de ~30+ (últimos ~2 meses) — canal tem mais de 100 lives no
+  total, indo bem mais pra trás no tempo. 11/09, 10/09, 01/09, 20/08, 14/08 e
+  16/09/2026 (essa última colada direto pelo Thiago no chat, sem passar por
+  busca/navegação no canal) — cobrindo correção/lateralização, disparada
+  forte de alta, uma live mais multi-mercado, e uma live "ao vivo" reagindo
+  ao Clarity Act não aprovado + expectativa de juros dos EUA.
+- Candidata seguinte pra buscar no canal (ainda não processada): "Trade Ao
+  Vivo! Análise do Bitcoin, Altcoins e Mercado Internacional!" (ncl4n0dfK1Y,
+  ~2 meses atrás).
+- 15/09/2026: implementados os 3 candidatos mais maduros até aqui — (1) sinal
+  4h de primeiro toque de RSI (`check_scalp_4h`), (2) sugestão de stop zero a
+  zero na memória da última operação, e (3) reteste após o 1º toque de RSI no
+  4h (`check_retest_4h`, 1º degrau da "escada de fundo ascendente" que o
+  próprio Thiago descreveu). A live #6 (16/09) validou diretamente os itens
+  (1) e (2) sem precisar de nenhuma mudança de código. Os candidatos "reteste
+  de nível rompido" (genérico, fora do 4h→semanal) e "cruzar exaustão com os
+  outros sinais" seguem em aberto, junto com os 4 degraus restantes da escada
+  e as primeiras menções (1x cada) de H&S invertido e triângulo ascendente.
 - Observação de processo: as duas primeiras lives processadas eram
   basicamente a MESMA correção de BTC sendo acompanhada em dias seguidos — ou
   seja, lives vizinhas tendem a ser bem repetitivas entre si. Amostragem
