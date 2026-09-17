@@ -395,6 +395,66 @@ Como funciona na prática:
   "invalidada" — pra não poluir a mensagem automática com leituras
   inconclusivas.
 
+## Tempo gráfico de 3 dias (3D) como leitura extra em cenário "poluído"
+
+Além dos tempos gráficos já buscados (5m, 15m, 1h, 4h, diário, semanal,
+mensal), o bot agora também busca candles de **3 dias** pros símbolos core
+(BTC/ETH). Motivo direto de uma live: quando o gráfico menor fica muito
+"poluído"/confuso (muito ruído, movimento lateral apertado), olhar pro 3D
+costuma dar uma leitura mais limpa da mesma estrutura — por isso o
+classificador de bandeira (`classifica_bandeira`) roda tanto no 4h quanto
+no 3D, mostrando os dois blocos quando disponíveis (identificados pelo
+tempo gráfico no texto).
+
+## Rompimento de linha de tendência diagonal — LTB/LTA (`check_trendline_breakout`)
+
+Todo o resto do bot enxerga só níveis **horizontais** (pivô, Fibonacci,
+EMA). Esse sinal novo cobre a outra ferramenta visual que o Diego usa
+bastante nos gráficos: uma reta **diagonal**.
+
+- **LTB** (linha de tendência de baixa) conecta topos descendentes e
+  funciona como resistência diagonal — o sinal dispara quando o preço
+  **fecha acima** dela pela primeira vez (COMPRAR).
+- **LTA** (linha de tendência de alta) conecta fundos ascendentes e
+  funciona como suporte diagonal — dispara quando o preço **fecha abaixo**
+  dela pela primeira vez (VENDER).
+
+Como o bot escolhe a linha: entre todos os pares de pivôs válidos (dentro
+de `TRENDLINE_LOOKBACK`, ~15 dias no 4h), pega o par mais distante entre si
+(`TRENDLINE_MIN_SPAN` mínimo) cuja reta conectando os dois pontos não é
+"furada" por nenhuma vela no meio do caminho (além de uma pequena
+tolerância, `TRENDLINE_TOUCH_TOLERANCE`) — a mesma lógica de desenhar uma
+LTB/LTA de verdade num gráfico, preferindo a linha mais "estabelecida". Só
+dispara no primeiro rompimento (não repete enquanto o preço segue do mesmo
+lado). Alvo: próximo pivô técnico na direção do rompimento. Stop: além do
+pivô/nível de referência mais próximo, com uma margem (`TRENDLINE_STOP_BUFFER`).
+
+## Padrão Ombro-Cabeça-Ombro — clássico e invertido (`check_oco_pattern`)
+
+Detecta tanto o **OCO clássico** (topo, reversão de baixa) quanto o
+**OCOi** (Ombro-Cabeça-Ombro invertido, fundo, reversão de alta) — padrão
+que já tinha aparecido em mais de uma live como cenário especulativo, mas
+sem código ainda.
+
+Como funciona: olha os 3 últimos pivôs relevantes (ombro 1, cabeça, ombro
+2) dentro de `OCO_LOOKBACK` (~25 dias no 4h) e exige que a cabeça seja
+claramente mais funda (OCOi) ou mais alta (OCO) que os dois ombros
+(`OCO_MIN_HEAD_DEPTH_PCT`, mínimo 2%), com os dois ombros de
+profundidade/altura parecida (`OCO_SHOULDER_SYMMETRY_TOLERANCE`, até 15%
+de diferença). O "pescoço" é a linha entre os dois topos/fundos
+intermediários (entre ombro1↔cabeça e cabeça↔ombro2) — o sinal dispara no
+primeiro rompimento desse pescoço.
+
+- **Alvo**: a medida clássica do padrão — a distância entre a cabeça e o
+  pescoço, projetada a partir do ponto de rompimento.
+- **Stop**: além do ombro mais recente (ombro 2), com uma margem
+  (`OCO_STOP_BUFFER`).
+
+Por ser uma heurística automática sobre pivôs (não uma leitura visual como
+a do Diego), o sinal sempre vem com um aviso de que vale conferir
+visualmente — a simetria real dos ombros pode variar mais do que o
+algoritmo capta.
+
 ## Tendência em 3 tempos gráficos (diário + semanal + mensal)
 
 O filtro de tendência majoritária do mercado (ver seção de filtros acima)

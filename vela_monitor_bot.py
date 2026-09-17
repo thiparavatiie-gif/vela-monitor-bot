@@ -53,7 +53,28 @@
 #      continuação na direção OPOSTA à da perna original, um grau acima do
 #      que parecia ser só uma pausa. É um sinal de CONTEXTO (não gera
 #      COMPRAR/VENDER isolado), mostrado junto com os outros blocos de
-#      leitura técnica no status horário e na análise detalhada.
+#      leitura técnica no status horário e na análise detalhada — roda tanto
+#      no 4h quanto no 3D (o Diego comenta que, quando o gráfico menor fica
+#      "poluído"/confuso, o tempo gráfico de 3 dias costuma dar uma leitura
+#      mais limpa da mesma bandeira).
+#
+#   3d) ROMPIMENTO DE LINHA DE TENDÊNCIA DIAGONAL — LTB/LTA
+#      (`check_trendline_breakout`) — até aqui todo sinal de estrutura usava
+#      só níveis HORIZONTAIS (pivô, fibo, EMA). Esse sinal ajusta uma reta
+#      DIAGONAL aos dois pivôs mais distantes que ainda "seguram" o preço
+#      entre eles — a LTB (linha de tendência de baixa, topos descendentes,
+#      resistência) ou a LTA (linha de tendência de alta, fundos
+#      ascendentes, suporte) — e dispara no primeiro fechamento além dela.
+#      Alvo pelo próximo pivô na direção do rompimento; stop além do
+#      pivô/linha de referência.
+#
+#   3e) PADRÃO OMBRO-CABEÇA-OMBRO — CLÁSSICO (topo, `check_oco_pattern`,
+#      reversão de baixa) E INVERTIDO (OCOi, fundo, reversão de alta) —
+#      heurística sobre os 3 últimos pivôs relevantes (ombro-cabeça-ombro,
+#      com a cabeça claramente mais funda/alta e os ombros com
+#      profundidade/altura parecida) e o "pescoço" entre eles. Dispara no
+#      primeiro rompimento do pescoço, com alvo pela distância clássica
+#      cabeça↔pescoço projetada, e stop além do ombro mais recente.
 #
 #   4) BOTTOM FISHING (posição) — moeda muito abaixo (55%+) da própria máxima
 #      HISTÓRICA e formando fundos ascendentes no diário, indicando possível
@@ -348,6 +369,32 @@ BREAKEVEN_STOP_R_MULT = 1.0
 # tendência, a leitura de bandeira se inverte: o que parecia correção agora
 # parece o início de uma continuação na direção contrária, um grau acima.
 BANDEIRA_VOLUME_TREND_MIN_PCT = 0.15  # dif. mínima entre 1ª e 2ª metade do volume pra contar como tendência clara
+
+# --- Rompimento de linha de tendência diagonal (LTB/LTA) ---
+# diferente dos níveis horizontais (pivô, fibo, EMA) que o resto do bot já
+# usa, aqui a referência é uma reta diagonal ajustada aos dois pivôs mais
+# distantes que ainda "seguram" o preço entre eles — a mesma lógica de
+# desenhar uma LTB (topos descendentes, resistência) ou LTA (fundos
+# ascendentes, suporte) num gráfico. Só dispara no primeiro fechamento além
+# da linha.
+TRENDLINE_LOOKBACK = 90          # candles pra trás pra procurar pivôs que formem a linha (~15 dias no 4h)
+TRENDLINE_MIN_SPAN = 10          # distância mínima (em candles) entre as duas âncoras da linha
+TRENDLINE_TOUCH_TOLERANCE = 0.012  # tolerância pra uma vela "furar" a linha no meio sem invalidar
+TRENDLINE_MIN_SLOPE_PCT = 0.0005   # inclinação mínima por vela, pra não confundir com nível ~horizontal
+TRENDLINE_BREAK_BUFFER = 0.002     # margem além da linha pra contar como rompimento de verdade
+TRENDLINE_STOP_BUFFER = 0.005      # margem do stop além do pivô/linha de referência
+
+# --- Padrão Ombro-Cabeça-Ombro (OCO clássico = topo/reversão de baixa) e
+# invertido (OCOi = fundo/reversão de alta) ---
+# heurística baseada nos 3 últimos pivôs relevantes (ombro-cabeça-ombro) e
+# no "pescoço" (linha entre os dois topos/fundos intermediários) — dispara
+# no primeiro rompimento do pescoço, com alvo pela distância cabeça-pescoço
+# projetada (medida clássica do padrão).
+OCO_LOOKBACK = 150                    # candles pra trás pra procurar os 3 pivôs do padrão (~25 dias no 4h)
+OCO_SHOULDER_SYMMETRY_TOLERANCE = 0.15  # até 15% de diferença de profundidade/altura entre os dois ombros
+OCO_MIN_HEAD_DEPTH_PCT = 0.02           # cabeça precisa ser pelo menos 2% mais funda/alta que os ombros
+OCO_NECKLINE_BREAK_BUFFER = 0.003       # margem além do pescoço pra contar como rompimento de verdade
+OCO_STOP_BUFFER = 0.005                 # margem do stop além do ombro 2 (o mais recente)
 
 # --- Bottom fishing (posição) — drawdown profundo desde a máxima histórica ---
 BOTTOM_FISHING_MIN_DRAWDOWN = 0.55   # pelo menos 55% abaixo da máxima histórica
@@ -835,11 +882,13 @@ def _volume_trend(candles, min_pct=BANDEIRA_VOLUME_TREND_MIN_PCT):
     return "estável"
 
 
-def classifica_bandeira(symbol, candles, pivot_len=PIVOT_LEN, fib_level=FIB_LEVEL):
+def classifica_bandeira(symbol, candles, timeframe_label="4h", pivot_len=PIVOT_LEN, fib_level=FIB_LEVEL):
     """
     Classifica a correção atual (depois da última perna de impulso) como uma
     bandeira "intacta", "invalidada" ou "indefinida", usando a regra de
-    Fibonacci 0.382 + direção do volume que aparece nas lives do Diego:
+    Fibonacci 0.382 + direção do volume que aparece nas lives do Diego.
+    `timeframe_label` é só pro texto — a função funciona em qualquer tempo
+    gráfico, e o Diego já mencionou essa leitura tanto no 4h quanto no 3D:
 
       - INTACTA: a correção não recuou além de 0.382 da perna de impulso, e
         o volume durante a correção vem caindo (ou está estável) — a
@@ -896,25 +945,25 @@ def classifica_bandeira(symbol, candles, pivot_len=PIVOT_LEN, fib_level=FIB_LEVE
     if contida and vol_trend in ("descendente", "estável", None):
         status = "intacta"
         texto = (
-            f"🚩 Bandeira {tipo_bandeira} intacta em {symbol}: a correção ainda não passou de "
-            f"{fib_level:.0%} da última perna de {direcao_perna_txt} (recuo atual ~{retracao_pct:.0%}), "
-            f"e {vol_txt} — nada de errado com a bandeira, o viés técnico segue a favor de continuação "
-            f"em {direcao_perna_txt}."
+            f"🚩 Bandeira {tipo_bandeira} intacta em {symbol} ({timeframe_label}): a correção ainda não "
+            f"passou de {fib_level:.0%} da última perna de {direcao_perna_txt} (recuo atual "
+            f"~{retracao_pct:.0%}), e {vol_txt} — nada de errado com a bandeira, o viés técnico segue a "
+            f"favor de continuação em {direcao_perna_txt}."
         )
     elif (not contida) and vol_trend == "ascendente":
         status = "invalidada"
         texto = (
-            f"🚩 Bandeira {tipo_bandeira} invalidada em {symbol}: a correção já passou de {fib_level:.0%} "
-            f"da última perna de {direcao_perna_txt} (recuo atual ~{retracao_pct:.0%}) E {vol_txt} — isso "
-            f"derruba a leitura de bandeira. Mais provável agora é uma continuação em {oposto_txt}, "
-            f"um grau acima do que parecia ser só uma correção."
+            f"🚩 Bandeira {tipo_bandeira} invalidada em {symbol} ({timeframe_label}): a correção já passou "
+            f"de {fib_level:.0%} da última perna de {direcao_perna_txt} (recuo atual ~{retracao_pct:.0%}) "
+            f"E {vol_txt} — isso derruba a leitura de bandeira. Mais provável agora é uma continuação em "
+            f"{oposto_txt}, um grau acima do que parecia ser só uma correção."
         )
     else:
         status = "indefinida"
         texto = (
-            f"🚩 Bandeira {tipo_bandeira} em {symbol} com leitura mista: recuo atual ~{retracao_pct:.0%} "
-            f"frente aos {fib_level:.0%} de referência, e {vol_txt} — sinais não bateram o suficiente "
-            f"pra confirmar se a bandeira segue intacta ou já foi invalidada."
+            f"🚩 Bandeira {tipo_bandeira} em {symbol} ({timeframe_label}) com leitura mista: recuo atual "
+            f"~{retracao_pct:.0%} frente aos {fib_level:.0%} de referência, e {vol_txt} — sinais não "
+            f"bateram o suficiente pra confirmar se a bandeira segue intacta ou já foi invalidada."
         )
 
     return {
@@ -923,8 +972,334 @@ def classifica_bandeira(symbol, candles, pivot_len=PIVOT_LEN, fib_level=FIB_LEVE
         "direcao_perna": leg["direction"],
         "retracao_pct": retracao_pct,
         "volume_trend": vol_trend,
+        "timeframe": timeframe_label,
         "texto": texto,
     }
+
+
+# ----------------------------------------------------------------------------
+# ROMPIMENTO DE LINHA DE TENDÊNCIA DIAGONAL (LTB/LTA)
+# ----------------------------------------------------------------------------
+#
+# Até aqui todo o resto do bot só enxerga níveis HORIZONTAIS (pivô, fibo,
+# EMA). Mas boa parte da análise visual do Diego usa retas DIAGONAIS — a LTB
+# (linha de tendência de baixa, conectando topos descendentes, funcionando
+# como resistência) e a LTA (linha de tendência de alta, conectando fundos
+# ascendentes, funcionando como suporte). Aqui a linha é ajustada aos dois
+# pivôs mais distantes (dentro do lookback) que ainda "seguram" o preço
+# entre eles — ou seja, nenhuma vela no meio do caminho fecha/fura a linha
+# além de uma pequena tolerância — e só dispara no PRIMEIRO fechamento além
+# dela (não repete enquanto o preço segue do mesmo lado).
+
+def _fit_trendline(pivots, candles, direction, lookback):
+    """
+    Acha o par de pivôs (mais distante entre si, ou seja a linha mais
+    "estabelecida") que forma uma linha de tendência válida:
+      - direction="baixa" (LTB): usa pivot_highs, topos descendentes
+        (p1 > p2), valida que nenhuma vela no meio ultrapassa a linha pelo
+        HIGH.
+      - direction="alta" (LTA): usa pivot_lows, fundos ascendentes
+        (p1 < p2), valida que nenhuma vela no meio ultrapassa a linha pelo
+        LOW.
+    Retorna (idx1, p1, idx2, p2, slope) da melhor linha achada, ou None.
+    """
+    n = len(candles)
+    limite = max(0, n - lookback)
+    pts = [p for p in pivots if p[0] >= limite]
+    if len(pts) < 2:
+        return None
+
+    melhor = None
+    melhor_span = -1
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            idx1, p1 = pts[i]
+            idx2, p2 = pts[j]
+            if direction == "baixa" and not (p1 > p2):
+                continue
+            if direction == "alta" and not (p1 < p2):
+                continue
+            span = idx2 - idx1
+            if span < TRENDLINE_MIN_SPAN:
+                continue
+            slope = (p2 - p1) / (idx2 - idx1)
+            if p1 <= 0 or abs(slope) / p1 < TRENDLINE_MIN_SLOPE_PCT:
+                continue  # inclinação fraca demais — já é coberto pelos níveis horizontais
+
+            valido = True
+            for k in range(idx1 + 1, idx2):
+                linha_k = p1 + slope * (k - idx1)
+                if direction == "baixa" and candles[k]["high"] > linha_k * (1 + TRENDLINE_TOUCH_TOLERANCE):
+                    valido = False
+                    break
+                if direction == "alta" and candles[k]["low"] < linha_k * (1 - TRENDLINE_TOUCH_TOLERANCE):
+                    valido = False
+                    break
+            if valido and span > melhor_span:
+                melhor = (idx1, p1, idx2, p2, slope)
+                melhor_span = span
+    return melhor
+
+
+def _monta_sinal_trendline(symbol, candles, acao, tipo_linha, ancora1, ancora2, linha_agora,
+                            pivot_highs, pivot_lows, timeframe_label):
+    idx1, p1 = ancora1
+    idx2, p2 = ancora2
+    price_now = candles[-1]["close"]
+
+    if acao == "COMPRAR":
+        candidatos_alvo = [p[1] for p in pivot_highs if p[1] > price_now]
+        alvo = min(candidatos_alvo) if candidatos_alvo else None
+        candidatos_stop = [p[1] for p in pivot_lows if p[0] > idx1]
+        nivel_stop = max(candidatos_stop) if candidatos_stop else min(p1, p2)
+        stop = avoid_round_number_stop(nivel_stop * (1 - TRENDLINE_STOP_BUFFER), "compra")
+    else:
+        candidatos_alvo = [p[1] for p in pivot_lows if p[1] < price_now]
+        alvo = max(candidatos_alvo) if candidatos_alvo else None
+        candidatos_stop = [p[1] for p in pivot_highs if p[0] > idx1]
+        nivel_stop = min(candidatos_stop) if candidatos_stop else max(p1, p2)
+        stop = avoid_round_number_stop(nivel_stop * (1 + TRENDLINE_STOP_BUFFER), "venda")
+    if alvo is None:
+        return None  # sem alvo técnico pra checar risco/retorno
+
+    nome_linha = "LTB (topos descendentes)" if tipo_linha == "LTB" else "LTA (fundos ascendentes)"
+    papel = "resistência" if tipo_linha == "LTB" else "suporte"
+    direcao_txt = "alta" if acao == "COMPRAR" else "baixa"
+
+    detalhes = [
+        f"Preço agora: {fmt_price(price_now)}",
+        f"Rompeu a {nome_linha} desenhada entre {fmt_price(p1)} e {fmt_price(p2)}",
+        f"Nível da linha nesta vela: {fmt_price(linha_agora)}",
+        f"Alvo técnico: {fmt_price(alvo)}",
+        f"Stop sugerido: {fmt_price(stop)}",
+    ]
+    checklist = [
+        (f"Fechamento além da {tipo_linha} nesta vela (primeiro rompimento)", True),
+    ]
+    explicacao = (
+        f"O preço rompeu a {nome_linha} que vinha funcionando como {papel} diagonal no {timeframe_label} "
+        f"— quando isso acontece, o cenário técnico passa a favorecer continuação em {direcao_txt}, desde "
+        "que a estrutura se confirme nos candles seguintes."
+    )
+    aviso = (
+        "Rompimento de linha de tendência pode ser falso (o preço volta pra dentro da linha) — vale "
+        "esperar confirmação nos candles seguintes antes de aumentar convicção."
+    )
+    return {
+        "symbol": symbol, "estilo": "SWING", "acao": acao,
+        "titulo": f"Rompimento de {tipo_linha} no {timeframe_label}",
+        "timeframe": timeframe_label,
+        "detalhes": detalhes,
+        "checklist": checklist,
+        "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "resumo": f"Rompimento da {tipo_linha} em {fmt_price(linha_agora)} no {timeframe_label}.",
+        "explicacao": explicacao,
+        "aviso": aviso,
+    }
+
+
+def check_trendline_breakout(symbol, candles, timeframe_label="4h", pivot_len=PIVOT_LEN):
+    """
+    Detecta o primeiro rompimento de uma LTB (linha de tendência de baixa,
+    resistência diagonal) pra cima, ou de uma LTA (linha de tendência de
+    alta, suporte diagonal) pra baixo — ver `_fit_trendline` pra critério de
+    validação da linha. Prioriza LTB (mais comum nas lives como setup de
+    reversão/continuação de alta); só olha LTA se não achou LTB rompida.
+    """
+    n = len(candles)
+    if n < TRENDLINE_MIN_SPAN + 5:
+        return None
+    price_now = candles[-1]["close"]
+    price_prev = candles[-2]["close"] if n > 1 else None
+    if price_prev is None:
+        return None
+
+    pivot_highs, pivot_lows = find_pivots(candles, pivot_len)
+
+    ltb = _fit_trendline(pivot_highs, candles, "baixa", TRENDLINE_LOOKBACK)
+    if ltb is not None:
+        idx1, p1, idx2, p2, slope = ltb
+        linha_agora = p1 + slope * (n - 1 - idx1)
+        linha_antes = p1 + slope * (n - 2 - idx1)
+        buffer_ = linha_agora * TRENDLINE_BREAK_BUFFER
+        if price_prev <= linha_antes + buffer_ and price_now > linha_agora + buffer_:
+            sinal = _monta_sinal_trendline(
+                symbol, candles, "COMPRAR", "LTB", (idx1, p1), (idx2, p2), linha_agora,
+                pivot_highs, pivot_lows, timeframe_label,
+            )
+            if sinal is not None:
+                return sinal
+
+    lta = _fit_trendline(pivot_lows, candles, "alta", TRENDLINE_LOOKBACK)
+    if lta is not None:
+        idx1, p1, idx2, p2, slope = lta
+        linha_agora = p1 + slope * (n - 1 - idx1)
+        linha_antes = p1 + slope * (n - 2 - idx1)
+        buffer_ = linha_agora * TRENDLINE_BREAK_BUFFER
+        if price_prev >= linha_antes - buffer_ and price_now < linha_agora - buffer_:
+            return _monta_sinal_trendline(
+                symbol, candles, "VENDER", "LTA", (idx1, p1), (idx2, p2), linha_agora,
+                pivot_highs, pivot_lows, timeframe_label,
+            )
+
+    return None
+
+
+# ----------------------------------------------------------------------------
+# PADRÃO OMBRO-CABEÇA-OMBRO (OCO = topo/reversão de baixa) E INVERTIDO
+# (OCOi = fundo/reversão de alta)
+# ----------------------------------------------------------------------------
+#
+# Heurística baseada nos 3 últimos pivôs relevantes formando ombro-cabeça-
+# ombro (cabeça claramente mais funda/alta que os dois ombros, ombros com
+# profundidade/altura parecida) e no "pescoço" — a linha entre os dois
+# topos/fundos intermediários (entre ombro1-cabeça e cabeça-ombro2). Dispara
+# só no primeiro rompimento do pescoço, com alvo técnico pela distância
+# clássica cabeça↔pescoço projetada a partir do ponto de rompimento.
+
+def _find_oco_estrutura(pivot_extremos, pivot_opostos, lookback_limite, invertido):
+    """
+    pivot_extremos: pivot_lows (OCOi) ou pivot_highs (OCO clássico) — onde
+    procuramos ombro1/cabeça/ombro2.
+    pivot_opostos: pivot_highs (OCOi) ou pivot_lows (OCO clássico) — onde
+    procuramos os dois pontos do pescoço.
+    """
+    pts = [p for p in pivot_extremos if p[0] >= lookback_limite]
+    if len(pts) < 3:
+        return None
+    (idx1, p1), (idx2, p2), (idx3, p3) = pts[-3:]
+
+    if invertido:
+        if not (p2 < p1 and p2 < p3):
+            return None
+        prof1 = (p1 - p2) / p1 if p1 > 0 else 0
+        prof3 = (p3 - p2) / p3 if p3 > 0 else 0
+    else:
+        if not (p2 > p1 and p2 > p3):
+            return None
+        prof1 = (p2 - p1) / p1 if p1 > 0 else 0
+        prof3 = (p2 - p3) / p3 if p3 > 0 else 0
+
+    if min(prof1, prof3) < OCO_MIN_HEAD_DEPTH_PCT:
+        return None  # cabeça não é claramente mais funda/alta que os ombros
+
+    diff_ombros = abs(p1 - p3) / ((p1 + p3) / 2) if (p1 + p3) > 0 else 1.0
+    if diff_ombros > OCO_SHOULDER_SYMMETRY_TOLERANCE:
+        return None  # ombros demais assimétricos pra contar como o mesmo padrão
+
+    pescoco1_cands = [q for q in pivot_opostos if idx1 < q[0] < idx2]
+    pescoco2_cands = [q for q in pivot_opostos if idx2 < q[0] < idx3]
+    if not pescoco1_cands or not pescoco2_cands:
+        return None
+
+    if invertido:
+        pescoco1 = max(pescoco1_cands, key=lambda q: q[1])
+        pescoco2 = max(pescoco2_cands, key=lambda q: q[1])
+    else:
+        pescoco1 = min(pescoco1_cands, key=lambda q: q[1])
+        pescoco2 = min(pescoco2_cands, key=lambda q: q[1])
+
+    return {
+        "ombro1": (idx1, p1), "cabeca": (idx2, p2), "ombro2": (idx3, p3),
+        "pescoco1": pescoco1, "pescoco2": pescoco2,
+    }
+
+
+def check_oco_pattern(symbol, candles, timeframe_label="4h", pivot_len=PIVOT_LEN):
+    """
+    Procura um OCOi (Ombro-Cabeça-Ombro invertido, fundo/reversão de alta)
+    ou um OCO clássico (topo/reversão de baixa) nos pivôs recentes, e
+    dispara quando o pescoço acabou de ser rompido nesta vela. Checa OCOi
+    primeiro (padrão mais comum nas lives), depois OCO.
+    """
+    n = len(candles)
+    min_candles = 2 * pivot_len + 30
+    if n < min_candles:
+        return None
+    price_now = candles[-1]["close"]
+    price_prev = candles[-2]["close"] if n > 1 else None
+    if price_prev is None:
+        return None
+
+    pivot_highs, pivot_lows = find_pivots(candles, pivot_len)
+    limite = max(0, n - OCO_LOOKBACK)
+
+    for invertido in (True, False):
+        extremos = pivot_lows if invertido else pivot_highs
+        opostos = pivot_highs if invertido else pivot_lows
+        estrutura = _find_oco_estrutura(extremos, opostos, limite, invertido)
+        if estrutura is None:
+            continue
+
+        idx_p1, val_p1 = estrutura["pescoco1"]
+        idx_p2, val_p2 = estrutura["pescoco2"]
+        if idx_p2 == idx_p1:
+            continue
+        slope = (val_p2 - val_p1) / (idx_p2 - idx_p1)
+        linha_agora = val_p1 + slope * (n - 1 - idx_p1)
+        linha_antes = val_p1 + slope * (n - 2 - idx_p1)
+        buffer_ = linha_agora * OCO_NECKLINE_BREAK_BUFFER
+
+        cabeca_idx, cabeca_preco = estrutura["cabeca"]
+        pescoco_na_cabeca = val_p1 + slope * (cabeca_idx - idx_p1)
+        distancia_alvo = abs(pescoco_na_cabeca - cabeca_preco)
+
+        if invertido:
+            rompeu = price_prev <= linha_antes + buffer_ and price_now > linha_agora + buffer_
+        else:
+            rompeu = price_prev >= linha_antes - buffer_ and price_now < linha_agora - buffer_
+        if not rompeu:
+            continue
+
+        acao = "COMPRAR" if invertido else "VENDER"
+        alvo = (linha_agora + distancia_alvo) if invertido else (linha_agora - distancia_alvo)
+        ombro2_idx, ombro2_preco = estrutura["ombro2"]
+        if invertido:
+            stop = avoid_round_number_stop(ombro2_preco * (1 - OCO_STOP_BUFFER), "compra")
+        else:
+            stop = avoid_round_number_stop(ombro2_preco * (1 + OCO_STOP_BUFFER), "venda")
+        if alvo <= 0 or (invertido and alvo <= price_now) or ((not invertido) and alvo >= price_now):
+            continue  # medida clássica não deu um alvo coerente com a direção do sinal
+
+        nome_padrao = "Ombro-Cabeça-Ombro invertido (OCOi)" if invertido else "Ombro-Cabeça-Ombro (OCO)"
+        direcao_txt = "alta" if invertido else "baixa"
+        ombro1_preco = estrutura["ombro1"][1]
+
+        detalhes = [
+            f"Preço agora: {fmt_price(price_now)}",
+            f"Ombro 1: {fmt_price(ombro1_preco)} | Cabeça: {fmt_price(cabeca_preco)} | Ombro 2: {fmt_price(ombro2_preco)}",
+            f"Pescoço rompido nesta vela em {fmt_price(linha_agora)}",
+            f"Alvo (distância cabeça↔pescoço projetada): {fmt_price(alvo)}",
+            f"Stop sugerido: {fmt_price(stop)} (além do ombro 2)",
+        ]
+        checklist = [
+            (f"Estrutura de {nome_padrao} identificada nos pivôs recentes do {timeframe_label}", True),
+            ("Cabeça claramente mais funda/alta que os dois ombros, ombros com profundidade parecida", True),
+            ("Rompimento do pescoço confirmado nesta vela (primeiro fechamento além dele)", True),
+        ]
+        explicacao = (
+            f"Formação de {nome_padrao} no {timeframe_label}: dois ombros parecidos ao redor de uma "
+            f"cabeça mais {'funda' if invertido else 'alta'}, com o pescoço (linha entre os dois "
+            "topos/fundos intermediários) acabando de ser rompido — padrão clássico de reversão, com "
+            "alvo técnico projetado pela distância entre a cabeça e o pescoço."
+        )
+        aviso = (
+            "Padrão identificado de forma automática a partir dos pivôs — vale conferir visualmente, "
+            "porque a simetria real dos ombros pode variar mais do que o algoritmo capta."
+        )
+        return {
+            "symbol": symbol, "estilo": "SWING", "acao": acao,
+            "titulo": f"Rompimento de pescoço — {nome_padrao}",
+            "timeframe": timeframe_label,
+            "detalhes": detalhes,
+            "checklist": checklist,
+            "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+            "resumo": f"{nome_padrao} no {timeframe_label}, pescoço rompido em {fmt_price(linha_agora)}.",
+            "explicacao": explicacao,
+            "aviso": aviso,
+        }
+
+    return None
 
 
 # ----------------------------------------------------------------------------
@@ -2794,6 +3169,11 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
     if not candles_4h:
         return f"⚠️ Não veio nenhum candle 4h pra {symbol} — confira se o par existe."
 
+    try:
+        candles_3d = fetch_klines(symbol, "3d", 200)
+    except Exception:
+        candles_3d = []
+
     price_now = candles_4h[-1]["close"]
     linhas = [f"🧭 VELA MONITOR — ANÁLISE — {_fmt_symbol(symbol)}", "",
               f"Preço agora: {fmt_price(price_now)}"]
@@ -2820,6 +3200,20 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
 
     try:
         sig = check_retest_4h(symbol, candles_4h, candles_w)
+        if sig:
+            sinais_ativos.append(sig)
+    except Exception:
+        pass
+
+    try:
+        sig = check_trendline_breakout(symbol, candles_4h, "4h")
+        if sig:
+            sinais_ativos.append(sig)
+    except Exception:
+        pass
+
+    try:
+        sig = check_oco_pattern(symbol, candles_4h, "4h")
         if sig:
             sinais_ativos.append(sig)
     except Exception:
@@ -2936,12 +3330,21 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         linhas.append(outlook_txt)
 
     try:
-        bandeira = classifica_bandeira(symbol, candles_4h)
+        bandeira = classifica_bandeira(symbol, candles_4h, timeframe_label="4h")
     except Exception:
         bandeira = None
     if bandeira:
         linhas.append("")
         linhas.append(bandeira["texto"])
+
+    if candles_3d and len(candles_3d) >= (2 * PIVOT_LEN + 10):
+        try:
+            bandeira_3d = classifica_bandeira(symbol, candles_3d, timeframe_label="3D")
+        except Exception:
+            bandeira_3d = None
+        if bandeira_3d:
+            linhas.append("")
+            linhas.append(bandeira_3d["texto"])
 
     linhas.append("")
     linhas.append(
@@ -3515,6 +3918,20 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
     except Exception as e:
         print(f"  {symbol}: erro no check de reteste após toque de RSI no 4h ({e})")
 
+    try:
+        sig = check_trendline_breakout(symbol, candles_4h, "4h")
+        if sig:
+            sinais.append(sig)
+    except Exception as e:
+        print(f"  {symbol}: erro no check de rompimento de linha de tendência ({e})")
+
+    try:
+        sig = check_oco_pattern(symbol, candles_4h, "4h")
+        if sig:
+            sinais.append(sig)
+    except Exception as e:
+        print(f"  {symbol}: erro no check de padrão ombro-cabeça-ombro ({e})")
+
     sinais = aplica_filtros_qualidade(sinais, market_trend, diagnosticos_extra=diagnosticos)
     sinais = adiciona_plano_b(sinais, candles_4h, candles_d)
     return sinais, diagnosticos
@@ -3865,12 +4282,21 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
                     bloco.append("📍 Fique de olho:")
                     bloco.append(outlook_txt)
                 try:
-                    bandeira = classifica_bandeira(symbol, entry_candles["4h"])
+                    bandeira = classifica_bandeira(symbol, entry_candles["4h"], timeframe_label="4h")
                 except Exception:
                     bandeira = None
                 if bandeira and bandeira["status"] != "indefinida":
                     bloco.append("")
                     bloco.append(bandeira["texto"])
+                candles_3d = entry_candles.get("3d")
+                if candles_3d and len(candles_3d) >= (2 * PIVOT_LEN + 10):
+                    try:
+                        bandeira_3d = classifica_bandeira(symbol, candles_3d, timeframe_label="3D")
+                    except Exception:
+                        bandeira_3d = None
+                    if bandeira_3d and bandeira_3d["status"] != "indefinida":
+                        bloco.append("")
+                        bloco.append(bandeira_3d["texto"])
             bloco.append("")
             bloco.append(_ultima_operacao_texto(memoria_anterior.get(symbol), price_now))
             partes.append("\n".join(bloco))
@@ -4159,6 +4585,7 @@ def main():
                 "15m": fetch_klines(sym, "15m", CONFLUENCE_15M_LIMIT),
                 "1h": fetch_klines(sym, "1h", 100),
                 "5m": fetch_klines(sym, "5m", CONFLUENCE_5M_LIMIT),
+                "3d": fetch_klines(sym, "3d", 200),
             }
         except Exception as e:
             print(f"  erro buscando candles extra (fique de olho) de {sym} ({e})")

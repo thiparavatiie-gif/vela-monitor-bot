@@ -536,10 +536,23 @@ chegou a 2 aparições.
    Mais leitura de contexto macro do que gatilho de entrada — prioridade
    baixa, mas anotado como um possível "termômetro de regime" futuro,
    parecido em espírito com o termômetro de ciclo (sinal 7).
-10. **Ombro-cabeça-ombro invertido** — 2 aparições agora (lives #6 e #7),
-    sempre como cenário especulativo/alternativo, nunca como sinal principal.
-    Ainda exige bem mais desenho técnico (detecção de 3 pernas + neckline)
-    antes de virar candidato maduro.
+10. **Ombro-cabeça-ombro invertido (OCOi) e clássico (OCO)** — 2 aparições
+    em lives (#6 e #7) como cenário especulativo, e depois confirmado de
+    forma bem concreta num sinal real do robô do próprio Diego (print
+    mandado pelo Thiago em 17/09: BNB rompendo LTB no 4h "abrindo espaço
+    pra formação de um OCOi no 4h"). **✅ IMPLEMENTADO** (`check_oco_pattern`,
+    17/09/2026) — detecta os 3 pivôs (ombro-cabeça-ombro, cabeça claramente
+    mais funda/alta e ombros parecidos) e o rompimento do pescoço, com alvo
+    pela distância clássica cabeça↔pescoço e stop além do ombro mais recente.
+    Cobre os dois sentidos (OCOi = fundo/alta, OCO = topo/baixa).
+11. **Rompimento de linha de tendência diagonal (LTB/LTA)** — mesmo print do
+    item 10 (BNB, 17/09): "começa a romper a LTB que vinha funcionando como
+    resistência". Até então todo sinal de estrutura do bot só usava níveis
+    horizontais (pivô, fibo, EMA) — nunca uma reta diagonal.
+    **✅ IMPLEMENTADO** (`check_trendline_breakout`, 17/09/2026) — ajusta a
+    reta aos dois pivôs mais distantes que ainda "seguram" o preço entre
+    eles, dispara no primeiro fechamento além dela, com alvo no próximo
+    pivô e stop além da linha/pivô de referência.
 
 ---
 
@@ -568,10 +581,39 @@ chegou a 2 aparições.
   pela 2ª.
 - 17/09/2026: implementado o classificador de bandeira (`classifica_bandeira`,
   item 8) — pedido explícito do Thiago, com urgência por causa de mais uma
-  live no dia seguinte. Os candidatos "reteste de nível rompido genérico"
-  (item 3), "cruzar exaustão com os outros sinais" (item 5) e "RSI 4h como
-  termômetro de regime" (item 9) seguem em aberto, junto com os 4 degraus
-  restantes da escada de fundo ascendente e o H&S invertido (item 10).
+  live no dia seguinte.
+- 17/09/2026 (mesmo dia, sessão seguinte): o Thiago mandou um print de um
+  sinal real do robô do Diego em BNB/4h ("bandeira de alta no 3D... começa a
+  romper a LTB... pode abrir espaço pra formação de um OCOi no 4h") pra eu
+  analisar e comparar com o bot. A análise expôs 2 lacunas reais — sem dados
+  de 3D, e sem detecção de linha de tendência diagonal / OCO-OCOi — e o
+  Thiago pediu implementação imediata dos três. **✅ IMPLEMENTADOS no mesmo
+  dia**: (a) candles de 3D passaram a ser buscados pros símbolos core, com
+  o classificador de bandeira rodando tanto no 4h quanto no 3D; (b)
+  rompimento de LTB/LTA (`check_trendline_breakout`, item 11); (c) padrão
+  ombro-cabeça-ombro clássico e invertido (`check_oco_pattern`, item 10).
+  Durante a mesma sessão o Thiago também mandou dois exemplos adicionais de
+  validação: um sinal de texto do robô do Diego em ETH ("rompeu a máxima do
+  ano... ceu aberto, líder do ciclo confirmado", com volume de confirmação e
+  alerta de risco por notícia/Fed — guardado como candidato futuro, ainda
+  não implementado, ver observação abaixo) e um comentário ao vivo sobre o
+  BTC reagindo à decisão do Fed que confirma na prática a lógica do 3D recém
+  implementada: "quando as coisas ficarem extremamente poluídas... observe
+  em tempos gráficos maiores, como no 3 dias. Bandeira de alta segue
+  intacta" — validação direta do item (a) no mesmo dia em que foi
+  implementado.
+- Observação (candidato futuro, não implementado): o sinal de ETH acima
+  ("rompimento de máxima do ano/52 semanas com volume de confirmação bem
+  acima da média, stop no suporte do pullback que segurou, alvos técnicos
+  em sequência") é um padrão distinto do que o bot já cobre — mais parecido
+  com um "breakout com confirmação de volume" do que com qualquer sinal
+  atual. Também notável: esse sinal do Diego veio com um alerta de risco
+  ligado a evento macro (reunião do Fed, opções concentradas num strike) —
+  o bot hoje não cruza nenhum sinal técnico com calendário de notícias/
+  eventos. Os candidatos "reteste de nível rompido genérico" (item 3),
+  "cruzar exaustão com os outros sinais" (item 5) e "RSI 4h como termômetro
+  de regime" (item 9) seguem em aberto, junto com os 4 degraus restantes da
+  escada de fundo ascendente.
 - Observação de processo: as duas primeiras lives processadas eram
   basicamente a MESMA correção de BTC sendo acompanhada em dias seguidos — ou
   seja, lives vizinhas tendem a ser bem repetitivas entre si. Amostragem
