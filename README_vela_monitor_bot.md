@@ -360,6 +360,41 @@ Como funciona na prática:
   reteste + encostando na EMA12 semanal + perto do 0.382 do último
   impulso), mas o sinal já dispara mesmo sem esses extras.
 
+## Classificador de bandeira de alta/baixa via Fibonacci + volume (`classifica_bandeira`)
+
+Sinal de **contexto** (não gera COMPRAR/VENDER isolado) que responde a uma
+pergunta recorrente nas lives: depois de uma perna de impulso no 4h, a
+correção que vem em seguida ainda é só uma "bandeira" (pausa que tende a
+continuar na mesma direção) ou já virou outra coisa?
+
+A regra usada:
+- **Bandeira intacta**: a correção não recuou além de **0.382** de Fibonacci
+  da perna de impulso, e o volume durante a correção vem **caindo** (ou
+  estável) — nada de errado, o viés técnico segue a favor de continuação na
+  direção da perna original.
+- **Bandeira invalidada**: a correção já passou de 0.382 da perna **E** o
+  volume nos repiques contra a perna vem **crescendo** — isso derruba a
+  leitura de bandeira. Mais provável agora é uma continuação na direção
+  **oposta** à da perna original, um grau acima do que parecia ser só uma
+  correção.
+- **Indefinida**: dados insuficientes ou sinais mistos (ex.: recuo passou de
+  0.382 mas o volume não confirma, ou o contrário) — não há leitura clara o
+  bastante pra ser útil, e por isso esse caso fica de fora do status horário
+  recorrente (só aparece na análise detalhada de uma moeda).
+
+Como funciona na prática:
+- Usa a mesma perna de impulso e os mesmos pivôs (`find_pivots`,
+  `last_impulse_leg`) já usados no sinal de pullback (sinal 1).
+- Compara o volume médio da 1ª metade com o da 2ª metade da correção
+  (`_volume_trend`) — precisa de uma diferença de pelo menos
+  `BANDEIRA_VOLUME_TREND_MIN_PCT` (15%) pra contar como tendência clara de
+  alta/queda de volume; senão fica "estável".
+- Na análise detalhada de uma moeda (`/analisar`), o bloco aparece sempre
+  que há perna de impulso identificável, incluindo o caso "indefinida". No
+  status horário recorrente, só aparece quando a leitura é "intacta" ou
+  "invalidada" — pra não poluir a mensagem automática com leituras
+  inconclusivas.
+
 ## Tendência em 3 tempos gráficos (diário + semanal + mensal)
 
 O filtro de tendência majoritária do mercado (ver seção de filtros acima)

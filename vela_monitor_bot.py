@@ -43,6 +43,18 @@
 #      perna semanal — e um segundo alvo mais ambicioso, mirando o próximo
 #      pivô do semanal além do alvo técnico do 4h.
 #
+#   3c) CLASSIFICADOR DE BANDEIRA DE ALTA/BAIXA (contexto, `classifica_bandeira`)
+#      — depois de toda perna de impulso no 4h, a correção que vem em seguida
+#      só continua valendo como "bandeira" (pausa que tende a continuar na
+#      mesma direção da perna) enquanto ela não recuar além de 0.382 de fibo
+#      da perna E o volume durante a correção vier caindo. Se a correção já
+#      passou de 0.382 E o volume nos repiques contra a perna vem crescendo,
+#      isso invalida a leitura de bandeira — o mais provável passa a ser uma
+#      continuação na direção OPOSTA à da perna original, um grau acima do
+#      que parecia ser só uma pausa. É um sinal de CONTEXTO (não gera
+#      COMPRAR/VENDER isolado), mostrado junto com os outros blocos de
+#      leitura técnica no status horário e na análise detalhada.
+#
 #   4) BOTTOM FISHING (posição) — moeda muito abaixo (55%+) da própria máxima
 #      HISTÓRICA e formando fundos ascendentes no diário, indicando possível
 #      base de longo prazo se formando.
@@ -327,6 +339,15 @@ RETEST_4H_STOP_BUFFER = 0.005    # stop um pouco além do fundo/topo original, n
 # múltiplo de R (distância entrada→stop) que o preço precisa andar a favor,
 # ainda com a operação aberta, pra memória sugerir travar o risco no zero a zero
 BREAKEVEN_STOP_R_MULT = 1.0
+
+# --- Classificador de bandeira de alta/baixa via Fibonacci + volume ---
+# regra: uma correção (bandeira) só continua válida enquanto ela não recua
+# mais que 0.382 de fibo da perna de impulso E o volume durante a correção
+# vem caindo (sem força compradora/vendedora de verdade nos repiques). Se a
+# correção passa de 0.382 E o volume vira ascendente nos repiques contra a
+# tendência, a leitura de bandeira se inverte: o que parecia correção agora
+# parece o início de uma continuação na direção contrária, um grau acima.
+BANDEIRA_VOLUME_TREND_MIN_PCT = 0.15  # dif. mínima entre 1ª e 2ª metade do volume pra contar como tendência clara
 
 # --- Bottom fishing (posição) — drawdown profundo desde a máxima histórica ---
 BOTTOM_FISHING_MIN_DRAWDOWN = 0.55   # pelo menos 55% abaixo da máxima histórica
@@ -785,6 +806,125 @@ def ascending_or_descending_bottoms(leg, pivot_highs, pivot_lows, min_count=MIN_
         prices = [p[1] for p in recent[-min_count:]]
         ok = all(prices[i] > prices[i + 1] for i in range(len(prices) - 1))
         return ok, recent
+
+
+def _volume_trend(candles, min_pct=BANDEIRA_VOLUME_TREND_MIN_PCT):
+    """
+    Compara o volume médio da 1ª metade com o da 2ª metade de uma sequência
+    de candles (tipicamente a correção/bandeira depois de uma perna de
+    impulso). Retorna "descendente" (volume caindo, correção "saudável"),
+    "ascendente" (volume crescendo, força de verdade entrando contra a
+    perna), "estável" (sem diferença clara), ou None se não há candles
+    suficientes pra uma leitura razoável.
+    """
+    n = len(candles)
+    if n < 6:
+        return None
+    meio = n // 2
+    vol1 = [c.get("volume", 0) for c in candles[:meio]]
+    vol2 = [c.get("volume", 0) for c in candles[meio:]]
+    media1 = sum(vol1) / len(vol1) if vol1 else 0
+    media2 = sum(vol2) / len(vol2) if vol2 else 0
+    if media1 <= 0:
+        return None
+    variacao = (media2 - media1) / media1
+    if variacao <= -min_pct:
+        return "descendente"
+    if variacao >= min_pct:
+        return "ascendente"
+    return "estável"
+
+
+def classifica_bandeira(symbol, candles, pivot_len=PIVOT_LEN, fib_level=FIB_LEVEL):
+    """
+    Classifica a correção atual (depois da última perna de impulso) como uma
+    bandeira "intacta", "invalidada" ou "indefinida", usando a regra de
+    Fibonacci 0.382 + direção do volume que aparece nas lives do Diego:
+
+      - INTACTA: a correção não recuou além de 0.382 da perna de impulso, e
+        o volume durante a correção vem caindo (ou está estável) — a
+        bandeira segue viva, favorece continuação na direção da perna.
+      - INVALIDADA: a correção já passou de 0.382 E o volume nos repiques
+        contra a perna vem crescendo — isso derruba a leitura de bandeira;
+        o mais provável passa a ser uma continuação na direção OPOSTA à da
+        perna original (um grau acima).
+      - INDEFINIDA: dados insuficientes ou sinais mistos (ex.: passou de
+        0.382 mas o volume não confirma, ou não deu pra medir volume) — não
+        há leitura clara o bastante pra ser útil.
+
+    Retorna None se não há perna de impulso identificável (poucos pivôs).
+    """
+    min_candles = 2 * pivot_len + 10
+    if len(candles) < min_candles:
+        return None
+    pivot_highs, pivot_lows = find_pivots(candles, pivot_len)
+    leg = last_impulse_leg(pivot_highs, pivot_lows)
+    if leg is None:
+        return None
+
+    leg_range = abs(leg["end_price"] - leg["start_price"])
+    if leg_range <= 0:
+        return None
+
+    price_now = candles[-1]["close"]
+    correcao = candles[leg["end_idx"]:]
+
+    if leg["direction"] == "baixa":
+        # perna de baixa -> a correção é o repique pra cima; bandeira "de baixa"
+        tipo_bandeira = "de baixa"
+        direcao_perna_txt = "baixa"
+        oposto_txt = "alta"
+        retracao_pct = max(0.0, (price_now - leg["end_price"]) / leg_range)
+    else:
+        # perna de alta -> a correção é o puxão pra baixo; bandeira "de alta"
+        tipo_bandeira = "de alta"
+        direcao_perna_txt = "alta"
+        oposto_txt = "baixa"
+        retracao_pct = max(0.0, (leg["end_price"] - price_now) / leg_range)
+
+    vol_trend = _volume_trend(correcao)
+    contida = retracao_pct <= fib_level
+
+    vol_txt_map = {
+        "descendente": "volume caindo na correção",
+        "ascendente": "volume crescendo na correção",
+        "estável": "volume estável na correção",
+        None: "volume da correção sem leitura clara",
+    }
+    vol_txt = vol_txt_map[vol_trend]
+
+    if contida and vol_trend in ("descendente", "estável", None):
+        status = "intacta"
+        texto = (
+            f"🚩 Bandeira {tipo_bandeira} intacta em {symbol}: a correção ainda não passou de "
+            f"{fib_level:.0%} da última perna de {direcao_perna_txt} (recuo atual ~{retracao_pct:.0%}), "
+            f"e {vol_txt} — nada de errado com a bandeira, o viés técnico segue a favor de continuação "
+            f"em {direcao_perna_txt}."
+        )
+    elif (not contida) and vol_trend == "ascendente":
+        status = "invalidada"
+        texto = (
+            f"🚩 Bandeira {tipo_bandeira} invalidada em {symbol}: a correção já passou de {fib_level:.0%} "
+            f"da última perna de {direcao_perna_txt} (recuo atual ~{retracao_pct:.0%}) E {vol_txt} — isso "
+            f"derruba a leitura de bandeira. Mais provável agora é uma continuação em {oposto_txt}, "
+            f"um grau acima do que parecia ser só uma correção."
+        )
+    else:
+        status = "indefinida"
+        texto = (
+            f"🚩 Bandeira {tipo_bandeira} em {symbol} com leitura mista: recuo atual ~{retracao_pct:.0%} "
+            f"frente aos {fib_level:.0%} de referência, e {vol_txt} — sinais não bateram o suficiente "
+            f"pra confirmar se a bandeira segue intacta ou já foi invalidada."
+        )
+
+    return {
+        "status": status,
+        "tipo_bandeira": tipo_bandeira,
+        "direcao_perna": leg["direction"],
+        "retracao_pct": retracao_pct,
+        "volume_trend": vol_trend,
+        "texto": texto,
+    }
 
 
 # ----------------------------------------------------------------------------
@@ -2795,6 +2935,14 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         linhas.append("📍 Última entrada e próximo ponto de interesse:")
         linhas.append(outlook_txt)
 
+    try:
+        bandeira = classifica_bandeira(symbol, candles_4h)
+    except Exception:
+        bandeira = None
+    if bandeira:
+        linhas.append("")
+        linhas.append(bandeira["texto"])
+
     linhas.append("")
     linhas.append(
         "⚠️ Isso é uma leitura automática baseada nas mesmas regras dos sinais do bot "
@@ -3716,6 +3864,13 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
                     bloco.append("")
                     bloco.append("📍 Fique de olho:")
                     bloco.append(outlook_txt)
+                try:
+                    bandeira = classifica_bandeira(symbol, entry_candles["4h"])
+                except Exception:
+                    bandeira = None
+                if bandeira and bandeira["status"] != "indefinida":
+                    bloco.append("")
+                    bloco.append(bandeira["texto"])
             bloco.append("")
             bloco.append(_ultima_operacao_texto(memoria_anterior.get(symbol), price_now))
             partes.append("\n".join(bloco))

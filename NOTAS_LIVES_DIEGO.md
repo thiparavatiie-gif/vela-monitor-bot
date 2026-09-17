@@ -381,6 +381,100 @@ precisa de desenho técnico bem mais elaborado).
 
 ---
 
+### 7) Live "ao vivo" de 17/09/2026 (transcrição colada direto pelo Thiago no
+chat, sem título/URL — pedido explícito de estudar a fundo e registrar
+qualquer regra ainda não anotada, "tudo é importante")
+
+Contexto: mercado americano subiu forte depois do anúncio de juros dos EUA
+(ao contrário do que todo mundo esperava), mas o cripto abriu puxando novas
+mínimas. Bandeira de alta seguindo intacta no 3 dias e no semanal, apesar de
+uma vela feia (martelo invertido) no 4h. Ele reforça bastante a visão de
+"não estamos mais em bear market" e mistura análise técnica com contexto
+macro (petróleo, eleições americanas, Trump) e várias perguntas de gestão de
+capital/alavancagem de alunos.
+
+Conceitos/técnicas que aparecem (e o que já existe ou não no bot):
+
+- **Regra objetiva pra classificar bandeira de alta vs. bandeira de baixa,
+  usando Fibonacci + direção do volume** — essa é a regra nova mais
+  concreta da live, explicada com bastante precisão técnica: uma bandeira
+  de BAIXA exige que a correção (pull-back) do movimento fique **dentro
+  de até 0.382 de Fibonacci** da perna anterior, **com volume descendente**
+  durante a formação e **sem continuidade** nos rompimentos de baixa. Se a
+  correção passar de 0.382 (ele usa um caso concreto passando pra 0.5) E o
+  volume nos rompimentos virar **ascendente/comprador**, isso descaracteriza
+  a bandeira de baixa — na prática, o padrão passa a ser lido como bandeira
+  de ALTA. **→ o bot não tem esse classificador hoje.** O `check_pullback`
+  (sinal 1) já usa a perna de impulso + retração de 0.382, mas não classifica
+  "bandeira de alta" vs "bandeira de baixa" como rótulos distintos, e não
+  cruza a profundidade da retração com a direção do volume da forma como ele
+  descreve aqui. Seria um sinal novo (ou uma extensão do pullback) que: (1)
+  mede se a correção ainda está contida em 0.382 ou já passou disso, e (2)
+  checa se o volume nos candles de rompimento da faixa de correção é a favor
+  ou contra a tendência anterior. **1ª aparição com esse nível de detalhe —
+  candidato forte, vale considerar pra próxima leva de implementação.**
+
+- **RSI de 4h extremo e prolongado (>90, por semanas seguidas) como leitor
+  de "regime" bull vs. bear market** — ele usa o histórico do RSI de 4h do
+  BTC (voltando ao bear market anterior inteiro, e ao de 2022) pra mostrar
+  que nunca se viu o RSI de 4h bater e SEGURAR em extremos tão altos (94,
+  24 dias consecutivos) durante um bear market — isso só aconteceu em
+  janeiro de 2023, que foi exatamente a virada pro bull market atual. A
+  leitura dele: RSI de 4h muito esticado por MUITOS dias seguidos (não só
+  um pico isolado) é sinal de mudança de regime de mercado (bear→bull ou
+  o contrário), diferente do clímax de exaustão (sinal 2, que é sobre um
+  pico pontual reverter). **→ o bot não tem nada parecido** — o
+  `detect_market_trend` atual é 100% baseado em cruzamento de EMAs no
+  diário/semanal/mensal, não olha pra duração/extremos do RSI de 4h. Seria
+  um indicador de contexto adicional (não um sinal de entrada — ele mesmo
+  não opera baseado nisso diretamente, usa como leitura de fundo), tipo um
+  "termômetro de regime" parecido em espírito com o termômetro de fase de
+  ciclo (sinal 7) que já existe, mas usando RSI de 4h esticado por muitos
+  dias em vez de comparar memecoins/alts/BTC. **1ª aparição — candidato
+  interessante, mas de baixa prioridade imediata** (é mais leitura de
+  contexto macro do que gatilho de entrada).
+
+- **Mínima perdida sem continuidade de queda = bandeira de alta segue viva**
+  — repetida de novo, tanto pro BTC quanto pro petróleo ("perda de suporte
+  sem continuidade de queda... isso é exaustão"). **4ª aparição** (lives
+  #1, #5, #6 e agora #7) — segue sendo a leitura mais recorrente de todas,
+  e continua 100% coberta pelo sinal 6 (`check_failed_breakout_reversal`).
+
+- **Ombro-cabeça-ombro invertido, 2ª aparição** — de novo citado como o
+  "pior cenário (mas ainda bullish)" caso o BTC não confirme o fundo
+  ascendente diretamente — agora 2x (lives #6 e #7). Ainda sem desenho
+  técnico pronto pra virar sinal (precisa detectar 3 pernas + "neckline" de
+  forma confiável), mas já é candidato a ficar de olho se aparecer de novo.
+
+- **Força relativa entre altcoins não segue uma regra fixa de "quem lidera
+  quem"** — ele corrige explicitamente um espectador que perguntou se
+  altcoins "precificam antes" do BTC: não existe essa regra geral, cada
+  altcoin tem sua força relativa própria (ETH mais forte que BTC no momento,
+  TRX mais fraco) — quem realmente importa é comparar a força de cada ativo
+  individualmente, não assumir uma ordem fixa. Reforça (não contradiz) a
+  lógica que o próprio sinal de dominância/altseason (sinal 5) já usa
+  (comparação relativa, não ordem fixa de "quem vem primeiro"). Sem ação de
+  código.
+
+- **Gestão de posição: acumular no mesmo trade/posição em vez de abrir
+  posições separadas** — ao montar swing trade em várias entradas
+  (acumulando nas quedas), ele reforça que prefere ir adicionando dentro da
+  MESMA posição (o preço médio vai ajustando) em vez de abrir posições
+  novas separadas — mais organização de conta do que sinal. Sem ação de
+  código, mas reforça que o bot já trata isso bem ao não gerar sinais
+  repetidos desnecessários pro mesmo movimento.
+
+**Resumo de candidatos a melhoria dessa live**: a regra de classificação de
+**bandeira de alta/baixa via Fibonacci (limite de 0.382) + direção do
+volume** é o candidato mais concreto e novo até agora que ainda não virou
+código — dá pra transformar num sinal ou numa extensão do pullback. O
+"RSI 4h esticado por muitos dias = mudança de regime" é interessante mas
+mais pra contexto/leitura macro do que gatilho de entrada, prioridade menor.
+"Mínima sem continuidade" segue validando o sinal 6 (4ª vez). H&S invertido
+chegou a 2 aparições.
+
+---
+
 ## Padrões que já apareceram em mais de uma live (mais forte candidato a virar código)
 
 1. **RSI em sobrevenda/sobrecompra no 4h é o setup de maior convicção pra ele**
@@ -407,8 +501,8 @@ precisa de desenho técnico bem mais elaborado).
    independentes.
 6. **Sinais 2, 5, 6, 7 e 8 do bot já capturam frameworks que ele ensina**
    (clímax de exaustão, dominância/altseason, rompimento falho — "mínima sem
-   continuidade de queda = bandeira de alta viva", confirmado 3x agora (#1,
-   #5, #6) —, fase de ciclo em 3 etapas, padrão de equilíbrio) — confirmado
+   continuidade de queda = bandeira de alta viva", confirmado 4x agora (#1,
+   #5, #6, #7) —, fase de ciclo em 3 etapas, padrão de equilíbrio) — confirmado
    repetidamente, sem
    necessidade de mudança. A ideia geral do bot (monitorar + filtrar os
    melhores sinais) também foi validada pelo "monitor de mercado" que ele
@@ -426,29 +520,58 @@ precisa de desenho técnico bem mais elaborado).
    fatores extra de confluência semanal (EMA12 e Fibonacci 0.382) — 15/09/2026.
    Os outros 4 degraus da escada (1M↔1D, 1D↔1h, 15m↔4h, 5m↔1h) ainda não
    foram implementados — mesma lógica, só trocando os tempos gráficos.
+8. **Classificador de bandeira de alta/baixa via Fibonacci (limite 0.382) +
+   direção do volume** — live #7 (17/09/2026): bandeira de baixa exige
+   correção contida até 0.382 de fib COM volume descendente e rompimentos
+   sem continuidade; passar de 0.382 com volume ascendente nos rompimentos
+   descaracteriza a bandeira de baixa (na prática vira bandeira de alta).
+   **✅ IMPLEMENTADO** (`classifica_bandeira`, 17/09/2026) — sinal de
+   contexto (status "intacta"/"invalidada"/"indefinida"), mostrado sempre na
+   análise detalhada e, no status horário recorrente, só quando a leitura
+   não é "indefinida" (pra não poluir a mensagem automática).
+9. **RSI de 4h esticado por muitos dias seguidos (>90, semanas) como leitor
+   de mudança de regime bull↔bear** — live #7 (17/09/2026): ele usa o
+   histórico do RSI de 4h pra mostrar que extremos tão prolongados nunca
+   acontecem durante bear market (só na virada pra bull, ex.: jan/2023).
+   Mais leitura de contexto macro do que gatilho de entrada — prioridade
+   baixa, mas anotado como um possível "termômetro de regime" futuro,
+   parecido em espírito com o termômetro de ciclo (sinal 7).
+10. **Ombro-cabeça-ombro invertido** — 2 aparições agora (lives #6 e #7),
+    sempre como cenário especulativo/alternativo, nunca como sinal principal.
+    Ainda exige bem mais desenho técnico (detecção de 3 pernas + neckline)
+    antes de virar candidato maduro.
 
 ---
 
 ## Progresso
 
-- Processadas: 6 de ~30+ (últimos ~2 meses) — canal tem mais de 100 lives no
-  total, indo bem mais pra trás no tempo. 11/09, 10/09, 01/09, 20/08, 14/08 e
-  16/09/2026 (essa última colada direto pelo Thiago no chat, sem passar por
-  busca/navegação no canal) — cobrindo correção/lateralização, disparada
-  forte de alta, uma live mais multi-mercado, e uma live "ao vivo" reagindo
-  ao Clarity Act não aprovado + expectativa de juros dos EUA.
-- Candidata seguinte pra buscar no canal (ainda não processada): "Trade Ao
-  Vivo! Análise do Bitcoin, Altcoins e Mercado Internacional!" (ncl4n0dfK1Y,
-  ~2 meses atrás).
+- Processadas: 7 de ~30+ (últimos ~2 meses) — canal tem mais de 100 lives no
+  total, indo bem mais pra trás no tempo. 11/09, 10/09, 01/09, 20/08, 14/08,
+  16/09 e 17/09/2026 (essas duas últimas coladas direto pelo Thiago no chat,
+  sem passar por busca/navegação no canal — o Thiago passou a mandar a
+  transcrição das lives diárias diretamente) — cobrindo correção/
+  lateralização, disparada forte de alta, uma live mais multi-mercado, e
+  duas lives "ao vivo" reagindo a notícias do dia (Clarity Act, juros dos
+  EUA).
+- Candidata seguinte pra buscar no canal, se o Thiago não mandar a próxima
+  direto (ainda não processada): "Trade Ao Vivo! Análise do Bitcoin,
+  Altcoins e Mercado Internacional!" (ncl4n0dfK1Y, ~2 meses atrás).
 - 15/09/2026: implementados os 3 candidatos mais maduros até aqui — (1) sinal
   4h de primeiro toque de RSI (`check_scalp_4h`), (2) sugestão de stop zero a
   zero na memória da última operação, e (3) reteste após o 1º toque de RSI no
   4h (`check_retest_4h`, 1º degrau da "escada de fundo ascendente" que o
   próprio Thiago descreveu). A live #6 (16/09) validou diretamente os itens
-  (1) e (2) sem precisar de nenhuma mudança de código. Os candidatos "reteste
-  de nível rompido" (genérico, fora do 4h→semanal) e "cruzar exaustão com os
-  outros sinais" seguem em aberto, junto com os 4 degraus restantes da escada
-  e as primeiras menções (1x cada) de H&S invertido e triângulo ascendente.
+  (1) e (2) sem precisar de nenhuma mudança de código. A live #7 (17/09)
+  trouxe o candidato novo mais concreto até agora — classificador de
+  bandeira de alta/baixa via Fibonacci 0.382 + direção do volume (item 8) —
+  além de reforçar "mínima sem continuidade" pela 4ª vez e H&S invertido
+  pela 2ª.
+- 17/09/2026: implementado o classificador de bandeira (`classifica_bandeira`,
+  item 8) — pedido explícito do Thiago, com urgência por causa de mais uma
+  live no dia seguinte. Os candidatos "reteste de nível rompido genérico"
+  (item 3), "cruzar exaustão com os outros sinais" (item 5) e "RSI 4h como
+  termômetro de regime" (item 9) seguem em aberto, junto com os 4 degraus
+  restantes da escada de fundo ascendente e o H&S invertido (item 10).
 - Observação de processo: as duas primeiras lives processadas eram
   basicamente a MESMA correção de BTC sendo acompanhada em dias seguidos — ou
   seja, lives vizinhas tendem a ser bem repetitivas entre si. Amostragem
