@@ -47,7 +47,7 @@ Arquivos deste pacote:
 
 ## Passo 3 — Escolher onde rodar
 
-### Opção A — GitHub Actions (recomendado, roda sozinho de hora em hora)
+### Opção A — GitHub Actions (recomendado, roda sozinho a cada 5 minutos)
 
 1. Crie um repositório novo no GitHub (pode ser privado).
 2. Suba os dois arquivos:
@@ -70,10 +70,12 @@ Arquivos deste pacote:
      maiores moedas de hoje, que pode ficar desatualizada se o ranking
      mudar bastante.
 4. Pronto — o workflow já está configurado pra rodar automaticamente a
-   cada hora (`cron: "0 * * * *"`), mais 3 horários extras pro relatório
-   categorizado (ver seção própria abaixo). Você também pode disparar
-   manualmente em **Actions → Vela Monitor - varredura horária → Run
-   workflow** pra testar na hora.
+   cada 5 minutos (`cron: "*/5 * * * *"`). Isso não significa 12x mais
+   mensagens: o próprio script decide a cada execução se vale a pena rodar
+   de verdade (hora cheia, um dos 8 horários de relatório/altcoin do dia,
+   ou uma execução manual) — na maioria das execuções ele sai sem fazer
+   nada. Você também pode disparar manualmente em **Actions → Vela Monitor
+   - varredura a cada 5 minutos → Run workflow** pra testar na hora.
 
 ### Opção B — Rodar localmente no seu Mac (cron)
 
@@ -89,13 +91,17 @@ Arquivos deste pacote:
 4. Se aparecer "sem setup no momento" pras moedas, está funcionando — só
    não tem nenhum padrão ativo agora. Quando tiver, a mensagem chega no
    Telegram.
-5. Pra rodar de hora em hora automaticamente, adicione ao crontab
-   (`crontab -e`):
+5. Pra rodar automaticamente, adicione ao crontab (`crontab -e`):
    ```
-   0 * * * * TELEGRAM_BOT_TOKEN="seu_token" TELEGRAM_CHAT_ID="seu_chat_id" /usr/bin/python3 ~/vela_monitor/vela_monitor_bot.py >> ~/vela_monitor/log.txt 2>&1
+   */5 * * * * TELEGRAM_BOT_TOKEN="seu_token" TELEGRAM_CHAT_ID="seu_chat_id" /usr/bin/python3 ~/vela_monitor/vela_monitor_bot.py >> ~/vela_monitor/log.txt 2>&1
    ```
    (Isso só roda enquanto o Mac estiver ligado e não em suspensão — por
    isso o GitHub Actions é a opção mais confiável se quiser rodar 24/7.)
+   Se preferir deixar só de hora em hora (`0 * * * *`), o status de BTC/ETH
+   continua funcionando normalmente — só que os horários de relatório
+   categorizado/altcoin do dia que caem no meio da hora (13:30, 14:40,
+   18:45, 19:30, 20:40) nunca disparam, só os que caem certinho na hora
+   cheia (03:00, 06:00, 22:00).
 
 ---
 
@@ -402,9 +408,12 @@ mensal), o bot agora também busca candles de **3 dias** pros símbolos core
 (BTC/ETH). Motivo direto de uma live: quando o gráfico menor fica muito
 "poluído"/confuso (muito ruído, movimento lateral apertado), olhar pro 3D
 costuma dar uma leitura mais limpa da mesma estrutura — por isso o
-classificador de bandeira (`classifica_bandeira`) roda tanto no 4h quanto
-no 3D, mostrando os dois blocos quando disponíveis (identificados pelo
-tempo gráfico no texto).
+classificador de bandeira (`classifica_bandeira`) roda no 4h, no 3D **e no
+semanal**, mostrando os blocos disponíveis (identificados pelo tempo
+gráfico no texto). A leitura semanal foi adicionada depois de uma live
+acompanhar ao vivo o rompimento da mesma bandeira de alta confirmando ao
+mesmo tempo no 3D e no semanal — os dois tempos gráficos reforçando um ao
+outro.
 
 ## Rompimento de linha de tendência diagonal — LTB/LTA (`check_trendline_breakout`)
 
@@ -454,6 +463,47 @@ Por ser uma heurística automática sobre pivôs (não uma leitura visual como
 a do Diego), o sinal sempre vem com um aviso de que vale conferir
 visualmente — a simetria real dos ombros pode variar mais do que o
 algoritmo capta.
+
+## Cruzamento de EMA no semanal (`check_weekly_ema_cross`)
+
+Sinal de **contexto** (sem entrada/stop/alvo — não tem um nível técnico
+natural pra isso) que avisa quando a EMA50 e a EMA200 do **semanal** —
+mesmo par que já define a tendência majoritária do mercado — acabaram de
+se cruzar. É um evento raro: uma live comentou que o cruzamento em
+andamento era o primeiro desde 2023 (que foi exatamente a virada pro bull
+market atual), tratando isso como confirmação de alta convicção pra
+montar posição de mais longo prazo.
+
+Dispara só na vela em que o cruzamento acontece de verdade — mesma lógica
+de "primeiro toque" usada nos sinais de RSI — não fica repetindo enquanto
+a relação entre as médias continua a mesma. Golden cross (EMA50 cruza
+acima da EMA200) = viés de alta; death cross (cruza abaixo) = viés de
+baixa.
+
+## Ranking de força relativa contra o BTC (`rank_relative_weakness_vs_btc`)
+
+Screener de candidatos a short, direto de uma live: não faz sentido
+shortar o ativo mais forte do mercado (a metáfora usada foi "shortar o
+cavalo mais forte da corrida") — os candidatos de verdade são as moedas
+perdendo de forma clara do **próprio BTC** no mesmo período, não qualquer
+moeda em queda isolada.
+
+Reaproveita os mesmos retornos de `DOMINANCE_LOOKBACK_DAYS` (7 dias) que o
+sinal de dominância/altseason já calcula, só que rankeando moeda a moeda
+em vez de olhar só a média do watchlist:
+
+- Só entram no ranking moedas com retorno individual pelo menos
+  `RELATIVE_WEAKNESS_MIN_DIFF_PP` (3 pontos percentuais) abaixo do retorno
+  do BTC no período.
+- Mostra até `RELATIVE_WEAKNESS_TOP_N` (5) moedas, da mais fraca pra menos
+  fraca.
+- Roda uma vez por rodada, só quando a varredura completa do watchlist
+  está ativa (mesmo horário/condição do sinal de dominância) — com
+  `SOMENTE_CORE_SYMBOLS` ligado, esse sinal fica pausado junto com o resto
+  da varredura completa.
+
+Sinal de contexto/screener (`acao: "OBSERVAR"`) — não substitui uma
+análise técnica própria do ativo antes de considerar um short.
 
 ## Tendência em 3 tempos gráficos (diário + semanal + mensal)
 
@@ -575,34 +625,26 @@ Pra voltar a incluir XRP e 2 altcoins em destaque (como era antes), edite
 varredura completa do watchlist volta a rodar toda hora (mais lento de
 novo), porque é dela que vem a escolha das melhores altcoins.
 
-## Restrito a só BTC/ETH por enquanto (`SOMENTE_CORE_SYMBOLS`)
+## Restrito a só BTC/ETH fora dos horários de relatório (`SOMENTE_CORE_SYMBOLS`)
 
 Por pedido, tem uma trava temporária ligada por padrão (`SOMENTE_CORE_SYMBOLS
 = True`, perto de `CORE_SYMBOLS` no topo do script) que faz o bot não
 analisar — nem mandar qualquer mensagem de — nenhuma moeda fora de
-`CORE_SYMBOLS`. Diferente da otimização de performance acima (que só
-adiava a varredura completa pros horários certos), essa trava desliga a
-varredura completa de vez enquanto estiver ligada:
+`CORE_SYMBOLS` **nos ticks de hora em hora**:
 
-- A varredura completa do watchlist (scalp/altcoins pequenas/bottom
-  fishing/dominância BTC-altseason/termômetro de ciclo) nem roda, mesmo nos
-  horários de relatório ou numa execução manual sem moeda específica.
-- O relatório categorizado (seção abaixo) manda só a seção "Swing
-  Principal" (BTC/ETH) — as seções de swing secundário (XRP + top 10
-  CoinMarketCap), altcoins pequenas, scalp e bottom fishing aparecem como
-  "pausadas", sem buscar dado nenhum de outra moeda.
+- Fora dos horários de relatório, a varredura completa do watchlist
+  (scalp/altcoins pequenas/bottom fishing/dominância BTC-altseason/
+  termômetro de ciclo/força relativa/altcoin do dia) nem roda.
+- **Nos horários de relatório (seção abaixo), a varredura completa roda
+  mesmo com essa trava ligada** — é o que alimenta o relatório categorizado
+  completo (todas as seções) e a varredura da altcoin do dia. Sem isso, a
+  altcoin do dia nunca teria dado pra rodar.
 - A consulta manual por uma moeda específica (campo `symbol`) continua
-  funcionando normalmente pra qualquer par — a trava é só sobre o que o bot
-  varre/manda sozinho, não sobre o que você pode perguntar.
+  funcionando normalmente pra qualquer par, a qualquer hora — a trava é só
+  sobre o que o bot varre/manda sozinho.
 
-Pra voltar a cobrir o resto do mercado, é só colocar `SOMENTE_CORE_SYMBOLS
-= False` de novo.
-
-**Importante sobre execuções manuais**: o relatório categorizado completo
-(seção abaixo) só dispara automaticamente pelo relógio — testar manualmente
-perto de um dos 6 horários não empilha mais o relatório inteiro em cima da
-varredura completa e do diagnóstico, o que antes deixava a execução manual
-bem mais pesada e demorada.
+Pra voltar a cobrir o resto do mercado o tempo todo (inclusive nos ticks de
+hora em hora), é só colocar `SOMENTE_CORE_SYMBOLS = False` de novo.
 
 **Preenchendo o campo `symbol` numa execução manual, a varredura completa do
 watchlist nem roda** — o bot pula direto pra análise só daquela moeda
@@ -610,14 +652,16 @@ watchlist nem roda** — o bot pula direto pra análise só daquela moeda
 A varredura completa (e o diagnóstico de proximidade do watchlist inteiro)
 só roda numa execução manual **sem** preencher o campo `symbol`.
 
-## Relatório categorizado (6x por dia)
+## Relatório categorizado e modo silencioso (8x por dia, horário da Irlanda)
 
 Além dos alertas soltos de cada sinal, o bot manda um relatório organizado
-por horizonte de operação em 6 horários fixos do dia (horário da Irlanda,
-horário de verão/IST): **06:00, 14:00, 14:30, 19:45, 20:15 e 23:00**
-(ligados à rotina do mercado americano — abertura, meio do pregão, 20h e
-fechamento do candle diário). Esse relatório é bem mais enxuto que uma
-lista de todas as moedas — ele filtra pra:
+por horizonte de operação em 8 horários fixos do dia, por pedido:
+**03:00, 06:00, 13:30, 14:40, 18:45, 19:30, 20:40 e 22:00**, sempre no
+**horário LOCAL da Irlanda**. Esses horários cobrem duas checagens de
+madrugada/manhã cedo mais a rotina do mercado americano (pré-abertura,
+abertura, meio do pregão, 20h e fechamento do candle diário). Esse
+relatório é bem mais enxuto que uma lista de todas as moedas — ele filtra
+pra:
 
 - **Swing principal**: BTC e ETH sempre aparecem. Se tiver sinal de swing
   ativo, mostra ele. Se não tiver, mostra dois cenários (um de alta, um de
@@ -637,12 +681,57 @@ Petróleo, ouro e mercado americano (S&P 500) ainda não entram nessa versão
 — a Binance só tem dados de cripto, então esses três ficariam de fora até
 adicionarmos uma fonte de dados separada.
 
-**Sobre o horário**: a Irlanda muda de fuso duas vezes por ano (horário de
-verão IST = UTC+1, horário de inverno GMT = UTC+0), e o cron do GitHub
-Actions só entende UTC fixo. Os horários acima valem pro horário de verão
-(a maior parte do ano) — no horário de inverno, tudo sai 1h mais cedo do
-que o pretendido. Se isso incomodar, me avisa quando mudar o horário de
-inverno (geralmente final de outubro) que eu ajusto o cron.
+**Modo silencioso (por pedido)**: nos horários acima que caem fora da hora
+cheia (13:30, 14:40, 18:45, 19:30, 20:40), tanto o status de hora em hora
+(BTC/ETH) quanto o relatório categorizado **só mandam mensagem quando tem
+sinal de verdade ativo em algo** — sem sinal nenhum em nada (BTC/ETH,
+watchlist completo, dominância/ciclo/força relativa), esse horário fica
+100% quieto, sem mensagem de preenchimento nem manchete de notícia. Na hora
+cheia de sempre (ex.: 05:00, 06:00 exatas etc.) o status de BTC/ETH continua
+mandando sempre, com ou sem sinal — é aí que mora o "📍 Fique de olho" de
+sempre. A altcoin do dia (próxima seção) é a exceção: quando a varredura
+acha uma, ela é mandada mesmo que mais nada tenha disparado naquele
+horário — é justamente pra garantir pelo menos uma recomendação por dia.
+
+**Sobre o horário e o fuso**: em vez de um offset fixo em UTC, o script usa
+a biblioteca `zoneinfo` (`Europe/Dublin`) pra calcular a hora local da
+Irlanda a cada execução — isso já ajusta sozinho a mudança pro horário de
+verão (IST, UTC+1) e de inverno (GMT, UTC+0) duas vezes por ano, sem
+precisar editar a lista de horários manualmente. Como alguns desses
+horários caem "no meio da hora" (13:30, 14:40, 18:45...), o cron do GitHub
+Actions roda a cada 5 minutos (em vez de só de hora em hora) — a grande
+maioria dessas execuções de 5 em 5 minutos sai sem fazer nada (nem chamada
+à Binance, nem mensagem nenhuma), só os ticks de hora cheia, os horários de
+relatório e as execuções manuais é que realmente rodam a análise.
+
+## Altcoin do dia — analisada contra o par em BTC (`find_altcoin_do_dia`)
+
+Nos mesmos 8 horários do relatório categorizado, o bot varre até
+`TOP_N_SYMBOLS` (50) altcoins de maior volume — excluindo BTC, ETH e
+stablecoins — e, pra cada uma, converte pro **par contra BTC** (ex.:
+`SOLUSDT` vira `SOLBTC`) em vez de olhar o par contra USDT. É assim que o
+canal sempre mede força de altcoin: não é diferença de retorno percentual
+em USDT (isso já existe como o ranking de força relativa, ver abaixo), é o
+gráfico do par BTC de verdade passando pelos mesmos checks de estrutura do
+bot — pullback no 0.382, rompimento de linha de tendência (LTA) e padrão
+OCO invertido (OCOi). A classificação de bandeira no mesmo par BTC entra
+como confirmação extra quando bate, sem ser critério sozinho (ela não tem
+entrada/stop/alvo próprios).
+
+Só entram candidatos com sinal de **alta** contra o BTC. Entre os
+candidatos, o bot escolhe **um só** — o de melhor risco/retorno, com a
+bandeira intacta de alta como critério de desempate — e manda como uma
+mensagem de "📚 altcoin pra estudar hoje", deixando claro que é uma
+**recomendação de análise**, não um sinal de entrada.
+
+No máximo **uma por dia**: o controle de duplicado usa a mesma mensagem
+fixada (pin) da memória da última operação no Telegram — não precisa de
+nenhum arquivo salvo no repositório nem de cache do GitHub Actions (que não
+persiste entre execuções). Se nenhum dos 8 horários do dia achar um
+candidato com estrutura de alta contra o BTC, nenhuma altcoin é mandada
+naquele dia — mais provável quando o mercado inteiro está fraco contra o
+BTC (típico de fase de dominância alta, ver o sinal de dominância/
+altseason).
 
 ## Diagnóstico e consulta por moeda (execução manual)
 

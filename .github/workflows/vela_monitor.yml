@@ -1,8 +1,17 @@
-name: Vela Monitor - varredura horária
+name: Vela Monitor - varredura a cada 5 minutos
 
+# Roda a cada 5 minutos (em vez de só de hora em hora) pra conseguir cair
+# certo nos horários de relatório pedidos (03:00, 06:00, 13:30, 14:40,
+# 18:45, 19:30, 20:40, 22:00 — horário LOCAL da Irlanda, calculado dentro
+# do próprio script com zoneinfo, então já ajusta sozinho a mudança de
+# horário de verão/inverno). O script (vela_monitor_bot.py) decide, a cada
+# execução, se é um "tick" que vale a pena rodar (hora cheia, horário de
+# relatório, ou execução manual) — na maioria das execuções de 5 em 5
+# minutos ele sai sem fazer nenhuma chamada à Binance nem mandar mensagem
+# nenhuma, então isso não gera 12x mais tráfego nem spam no Telegram.
 on:
   schedule:
-    - cron: "0 * * * *"   # a cada hora, no minuto 0 (horário UTC)
+    - cron: "*/5 * * * *"   # a cada 5 minutos (horário UTC, igual sempre — a conversão pro horário da Irlanda é feita dentro do script)
   workflow_dispatch:        # permite rodar manualmente pelo botão "Run workflow"
     inputs:
       symbol:

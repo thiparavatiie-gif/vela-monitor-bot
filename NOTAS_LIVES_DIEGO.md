@@ -475,6 +475,111 @@ chegou a 2 aparições.
 
 ---
 
+### 8) Live "ao vivo" de 18/09/2026 (transcrição colada direto pelo Thiago no
+chat, sem título/URL — pedido de estudar a fundo e anotar tudo, "para não
+perder nada e melhorar o bot e as análises")
+
+Contexto: continuação forte de alta no BTC rumo a novas máximas do
+movimento, reforçando um mês inteiro de "compra na queda" desde 23/08. Ele
+revisita vários trades já fechados (INJ, ETH, XRP, ONDO) como prova de
+resultado, e acompanha ao vivo o rompimento de uma bandeira de alta no
+3D/semanal em tempo real durante a própria live, além de temas de gestão de
+risco/psicológico (alavancagem, "trade da vingança", segurar lucro) e um
+aviso sobre um canal fake se passando por ele no Telegram.
+
+Conceitos/técnicas que aparecem (e o que já existe ou não no bot):
+
+- **Confirmação de rompimento de bandeira em DOIS tempos gráficos ao mesmo
+  tempo (3D e semanal)** — ele acompanha o preço rompendo a mesma bandeira
+  de alta simultaneamente no 3D e no semanal ao vivo, tratando isso como
+  reforço mútuo (não é só o 3D confirmando, o semanal também). **→ parcialmente
+  implementado**: o bot já roda `classifica_bandeira` no 4h e no 3D (feature
+  de ontem), mas ainda não no semanal, apesar de já buscar `candles_w` em
+  `analyze_symbol` e `build_symbol_deep_dive`. **Implementado nesta sessão**
+  (ver Progresso) — passou a rodar também no semanal.
+
+- **Zona de resistência nomeada "banho gelado"** — ele usa um apelido fixo
+  pra maior zona de resistência do momento (nesse caso, ~80.500–82.800,
+  entre o fundo anterior ao topo e o próprio topo), reforçando que romper
+  essa zona destrava caminho livre até a próxima grande cifra redonda
+  (100.000). Não é uma técnica nova — é a mesma lógica de zona de pivôs
+  relevante que o bot já usa (`find_pivots`, alvo técnico nos sinais) — só
+  reforça que vale destacar essa zona com mais clareza nos textos gerados
+  (ex.: no "Fique de olho" ou na análise detalhada), já que é a referência
+  que ele mais repete quando o preço tá subindo.
+
+- **Cruzamento de médias (EMA) no semanal como confirmação rara de alta
+  convicção** — ele menciona que esse é o primeiro cruzamento de médias no
+  semanal desde 2023 (a última vez foi bem antes do início do bull market
+  atual), tratando isso como um evento raro e forte o bastante pra montar
+  posição pra segurar meses. **→ o bot não tem isso hoje** —
+  `detect_market_trend` já cruza EMAs no diário/semanal/mensal pra decidir
+  a tendência majoritária, mas não dispara um AVISO específico só quando
+  esse cruzamento acabou de acontecer (é só usado como filtro de fundo,
+  silencioso). Candidato novo: um sinal de contexto tipo "primeiro toque"
+  (dispara só na vela em que o cruzamento acontece) pro cruzamento de EMA
+  12/26 no semanal — parecido em espírito com `check_scalp_4h` (evento raro
+  = alta convicção), mas pra cruzamento de médias em vez de RSI.
+
+- **Não shortar ativo forte — procurar força relativa contra o BTC pra
+  achar candidatos de short** — ele reforça (com a metáfora da corrida de
+  cavalos) que não faz sentido shortar o ativo mais forte do mercado, e que
+  a forma certa de procurar candidatos de short é olhar pares cotados em
+  BTC (não em USDT) pra achar os ativos mais fracos que o próprio BTC. **→
+  parcialmente coberto**: o filtro de tendência majoritária
+  (`_alinhado_com_tendencia`) já bloqueia sinais de VENDA contra a tendência
+  geral do BTC, mas o bot não tem um screener específico de "moedas mais
+  fracas que o BTC" (o sinal de dominância/altseason, sinal 5, compara o
+  watchlist inteiro como grupo, não teria pontuado ativos individualmente).
+  Candidato de baixo/médio esforço: um ranking de performance relativa
+  individual de cada moeda do watchlist contra o BTC, reaproveitando o
+  `pct_return` que o sinal 5 já usa.
+
+- **RSI esticado por muito tempo sem correção = força extrema do
+  mercado, mesmo contra notícia macro (juros subindo)** — ele reforça que o
+  mercado ignorando alta de juros dos EUA (que teoricamente derrubaria
+  ativos de risco) e continuando a subir é evidência de força extrema.
+  Reforça (3ª/4ª vez, contando a live #7) o candidato "RSI de 4h esticado
+  por muitos dias = leitor de regime bull/bear" (item 9 da lista abaixo) —
+  dado o quanto ele volta nesse tema, vale subir a prioridade desse
+  candidato.
+
+- **"Perda de suporte sem continuidade + volume vendedor caindo =
+  exaustão da força vendedora"** — ele detalha de novo o raciocínio por
+  trás da bandeira de alta (mesma lógica do classificador implementado
+  ontem), agora explicando o "porquê" psicológico com mais profundidade:
+  poucos vendedores restantes depois de uma explosão de alta, recuperação
+  rápida em V sempre que o suporte é perdido. **Confirma novamente** (não
+  muda nada) o `classifica_bandeira` já implementado.
+
+- **Ombro-cabeça-ombro invertido confirmado num ativo real, ao vivo** —
+  ele cita explicitamente um OCOi confirmado ao vivo numa altcoin. **Valida
+  em produção** o `check_oco_pattern` implementado ontem.
+
+- **Zona ideal de compra (INJ) e caso de trader que operou day trade um
+  setup de swing** — dois casos que só reforçam frameworks já cobertos: a
+  zona de compra ideal é a mesma lógica de zona de fibo/pullback (sinal 1),
+  e o aviso de "não confunda estilo scalp vs swing" já é refletido no bot
+  pelo campo `estilo` de cada sinal (SCALP tem stop apertado e é tratado
+  como janela curta; SWING não). Sem ação de código.
+
+- **Psicologia: "trade da vingança" (shortar por raiva de ter perdido a
+  alta) e dificuldade de segurar lucro** — conceitos comportamentais, sem
+  tradução direta em código — mais um lembrete pros textos de aviso do bot
+  não incentivarem operar contra a tendência por impulso (o filtro de
+  tendência já cobre isso tecnicamente).
+
+**Resumo de candidatos a melhoria dessa live**: o mais concreto e de menor
+esforço é rodar o classificador de bandeira também no semanal (já
+implementado nesta sessão, ver Progresso). Os outros dois candidatos novos
+— cruzamento de EMA no semanal como sinal de contexto raro, e um ranking de
+força relativa individual contra o BTC pra achar candidatos de short —
+ficam registrados como próximos passos, ainda não implementados. "RSI 4h
+esticado por dias = regime" (item 9) ganhou mais uma confirmação forte e
+deveria subir de prioridade.
+
+---
+
 ## Padrões que já apareceram em mais de uma live (mais forte candidato a virar código)
 
 1. **RSI em sobrevenda/sobrecompra no 4h é o setup de maior convicção pra ele**
@@ -528,14 +633,20 @@ chegou a 2 aparições.
    **✅ IMPLEMENTADO** (`classifica_bandeira`, 17/09/2026) — sinal de
    contexto (status "intacta"/"invalidada"/"indefinida"), mostrado sempre na
    análise detalhada e, no status horário recorrente, só quando a leitura
-   não é "indefinida" (pra não poluir a mensagem automática).
+   não é "indefinida" (pra não poluir a mensagem automática). Roda no 4h e
+   no 3D desde 17/09; **desde 18/09 roda também no semanal**, depois da live
+   #8 mostrar ao vivo o rompimento da mesma bandeira confirmando ao mesmo
+   tempo no 3D e no semanal.
 9. **RSI de 4h esticado por muitos dias seguidos (>90, semanas) como leitor
    de mudança de regime bull↔bear** — live #7 (17/09/2026): ele usa o
    histórico do RSI de 4h pra mostrar que extremos tão prolongados nunca
    acontecem durante bear market (só na virada pra bull, ex.: jan/2023).
-   Mais leitura de contexto macro do que gatilho de entrada — prioridade
-   baixa, mas anotado como um possível "termômetro de regime" futuro,
-   parecido em espírito com o termômetro de ciclo (sinal 7).
+   Reforçado de novo na live #8 (18/09/2026), agora ligando isso ao mercado
+   ignorando a alta de juros dos EUA como evidência de força extrema. Mais
+   leitura de contexto macro do que gatilho de entrada, mas com 2
+   confirmações agora (#7 e #8) — **prioridade subiu de baixa pra média**,
+   candidato a "termômetro de regime" parecido em espírito com o termômetro
+   de ciclo (sinal 7).
 10. **Ombro-cabeça-ombro invertido (OCOi) e clássico (OCO)** — 2 aparições
     em lives (#6 e #7) como cenário especulativo, e depois confirmado de
     forma bem concreta num sinal real do robô do próprio Diego (print
@@ -553,6 +664,34 @@ chegou a 2 aparições.
     reta aos dois pivôs mais distantes que ainda "seguram" o preço entre
     eles, dispara no primeiro fechamento além dela, com alvo no próximo
     pivô e stop além da linha/pivô de referência.
+12. **Cruzamento de EMA no semanal como sinal de contexto raro** — live #8
+    (18/09/2026): primeiro cruzamento de médias no semanal desde 2023,
+    tratado como evento raro de alta convicção pra montar posição de meses.
+    **✅ IMPLEMENTADO** (`check_weekly_ema_cross`, 18/09/2026) — mesmo padrão
+    de "primeiro toque" já usado em outros sinais, aplicado ao cruzamento
+    EMA50/EMA200 no semanal (mesmo par de médias que já define
+    `detect_market_trend`); sinal de contexto raro, sem repetir na vela
+    seguinte ao cruzamento.
+13. **Ranking de força relativa individual contra o BTC (screener de
+    short)** — live #8 (18/09/2026): pra achar candidatos de short, ele não
+    olha o ativo isoladamente, olha o par cotado em BTC pra achar quem tá
+    mais fraco que o próprio BTC. **✅ IMPLEMENTADO** um primeiro passo
+    (`rank_relative_weakness_vs_btc`, 18/09/2026) — reaproveita os retornos
+    em USDT que o sinal 5 (dominância/altseason) já calcula pra rankear
+    cada moeda individualmente contra o retorno do BTC no mesmo período
+    (screener de contexto, não é o gráfico do par BTC ainda — ver item 14).
+14. **Achar candidatos fortes analisando o PAR CONTRA BTC de verdade**
+    (não só diferença de retorno em USDT) — pedido direto do Thiago em
+    18/09/2026, cobrando a mesma lógica do item 13 só que pro lado
+    contrário (achar altcoin forte pra comprar, não fraca pra vender): "vai
+    ter que analisar contra o par BTC como ele sempre faz" — ou seja, rodar
+    os checks de estrutura DIRETO no candle do par `{MOEDA}BTC`, igual o
+    item 13 descreve o canal fazendo, em vez de só comparar % de retorno em
+    USDT. **✅ IMPLEMENTADO** (`find_altcoin_do_dia`, 18/09/2026) — a
+    "altcoin do dia" (ver README) converte cada altcoin do watchlist pro
+    par contra BTC, roda pullback/LTA/OCOi direto nesse par, usa a bandeira
+    (item 8) como confirmação extra, e escolhe uma recomendação de estudo
+    por dia com o melhor risco/retorno.
 
 ---
 
@@ -619,3 +758,34 @@ chegou a 2 aparições.
   seja, lives vizinhas tendem a ser bem repetitivas entre si. Amostragem
   espalhada no tempo (a partir da live #3) trouxe cenários mais variados com
   menos lives processadas.
+- 18/09/2026: processada a live #8 (transcrição colada direto pelo Thiago),
+  trazendo bastante conteúdo novo. Implementados no mesmo dia: bandeira
+  (item 8) passou a rodar também no semanal, além do 4h/3D já existentes;
+  cruzamento de EMA50/EMA200 no semanal (item 12, `check_weekly_ema_cross`);
+  e um primeiro ranking de força relativa individual contra o BTC (item 13,
+  `rank_relative_weakness_vs_btc`, ainda em cima de retorno % em USDT).
+- 18/09/2026 (mesmo dia, sessão seguinte): pedido de mudança de agenda e de
+  uma recomendação diária de altcoin. O Thiago perguntou por que não tinha
+  recebido sinal num dia (resposta: comportamento normal do cron/tolerância
+  de horário, não é bug) e pediu pra (1) checar o mercado em 8 horários
+  fixos no horário da Irlanda (03:00, 06:00, 13:30, 14:40, 18:45, 19:30,
+  20:40, 22:00), (2) ficar quieto quando não é sinal de verdade nesses
+  horários, e (3) escolher uma altcoin por dia entre as ~50 maiores pra
+  mandar como recomendação de estudo. Depois de eu confirmar fuso (horário
+  da Irlanda) e critério (reaproveitar o que o bot já tem), o Thiago ainda
+  refinou duas vezes: (a) restringir a varredura a ~50 moedas de maior
+  market cap, filtrando pra UMA recomendação só; e (b) o ponto mais
+  importante — a análise tem que rodar no **par contra BTC** (ex.: SOLBTC),
+  não em % de retorno contra USDT, "do jeito que ele sempre faz" (item 14,
+  mesma lógica do item 13 só que pro lado comprado). **✅ IMPLEMENTADO no
+  mesmo dia**: (a) os 8 horários viraram `REPORT_TIMES_DUBLIN`, calculados
+  com `zoneinfo` (Europe/Dublin) pra já lidar sozinho com a troca de
+  horário de verão/inverno da Irlanda, com o cron do GitHub Actions rodando
+  a cada 5 minutos só pra conseguir cair certo nesses horários; (b) modo
+  silencioso — status core e relatório categorizado só mandam mensagem nos
+  horários extra (fora da hora cheia) quando tem sinal de verdade em algo;
+  (c) `find_altcoin_do_dia` — varre o watchlist convertendo cada altcoin
+  pro par contra BTC de verdade, roda pullback/LTA/OCOi nesse par, usa a
+  bandeira como confirmação extra, escolhe uma recomendação por dia com
+  dedup via mensagem fixada no Telegram (mesma técnica já usada pra memória
+  da última operação, sem precisar de nenhum estado salvo no repositório).

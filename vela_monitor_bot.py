@@ -53,10 +53,12 @@
 #      continuação na direção OPOSTA à da perna original, um grau acima do
 #      que parecia ser só uma pausa. É um sinal de CONTEXTO (não gera
 #      COMPRAR/VENDER isolado), mostrado junto com os outros blocos de
-#      leitura técnica no status horário e na análise detalhada — roda tanto
-#      no 4h quanto no 3D (o Diego comenta que, quando o gráfico menor fica
+#      leitura técnica no status horário e na análise detalhada — roda no
+#      4h, no 3D (o Diego comenta que, quando o gráfico menor fica
 #      "poluído"/confuso, o tempo gráfico de 3 dias costuma dar uma leitura
-#      mais limpa da mesma bandeira).
+#      mais limpa da mesma bandeira) e no semanal (adicionado depois de uma
+#      live acompanhar ao vivo o rompimento da mesma bandeira confirmando ao
+#      mesmo tempo no 3D e no semanal).
 #
 #   3d) ROMPIMENTO DE LINHA DE TENDÊNCIA DIAGONAL — LTB/LTA
 #      (`check_trendline_breakout`) — até aqui todo sinal de estrutura usava
@@ -76,6 +78,16 @@
 #      primeiro rompimento do pescoço, com alvo pela distância clássica
 #      cabeça↔pescoço projetada, e stop além do ombro mais recente.
 #
+#   3f) CRUZAMENTO DE EMA50/EMA200 NO SEMANAL (contexto,
+#      `check_weekly_ema_cross`) — mesmo par de EMAs que já define a
+#      tendência majoritária do mercado, mas aqui disparando um aviso só na
+#      vela em que o cruzamento (golden/death cross) acontece de verdade —
+#      evento raro (uma live citou que o cruzamento em andamento era o
+#      primeiro desde 2023), tratado como confirmação de alta convicção de
+#      mudança/continuação de tendência de mais longo prazo. Sinal de
+#      CONTEXTO (sem entrada/stop/alvo — não tem nível técnico natural pra
+#      isso), mostrado junto com os outros blocos de leitura técnica.
+#
 #   4) BOTTOM FISHING (posição) — moeda muito abaixo (55%+) da própria máxima
 #      HISTÓRICA e formando fundos ascendentes no diário, indicando possível
 #      base de longo prazo se formando.
@@ -92,6 +104,15 @@
 #      baseado em performance relativa, mas segue a mesma lógica da regra:
 #      BTC forte na frente das alts = dominância subindo; alts fortes na
 #      frente do BTC = dominância caindo / altseason.
+#
+#   5b) RANKING DE FORÇA RELATIVA CONTRA O BTC — CANDIDATOS A SHORT
+#      (mercado, uma vez por rodada quando a varredura completa roda,
+#      `rank_relative_weakness_vs_btc`) — reaproveita os mesmos retornos de
+#      7 dias do sinal de dominância, mas rankeando moeda a moeda em vez de
+#      só a média do watchlist. Lógica de uma live: não faz sentido shortar
+#      o ativo mais forte do mercado — os candidatos de verdade pra short
+#      são os que estão perdendo do próprio BTC por uma margem clara.
+#      Sinal de CONTEXTO/screener (sem entrada/stop/alvo).
 #
 #   6) REVERSÃO POR ROMPIMENTO FALHO (swing) — o preço rompe um suporte ou
 #      resistência relevante (já confirmado por pivô), mas não tem
@@ -197,12 +218,15 @@
 #  uma EMA ou suporte num tempo gráfico maior, não só quando já chegou lá.
 #
 #  RESTRIÇÃO TEMPORÁRIA (SOMENTE_CORE_SYMBOLS, ligada por padrão): por
-#  pedido, o bot não analisa nem manda mensagem de NENHUMA moeda fora de
-#  CORE_SYMBOLS (BTC/ETH) — a varredura completa do watchlist (itens 3-7
-#  acima pra outras moedas, dominância, ciclo) e as seções extras do
-#  relatório categorizado (item 10 abaixo) ficam pausadas. A consulta manual
-#  por symbol continua funcionando pra qualquer par. Ver a constante perto
-#  de CORE_SYMBOLS pra reverter.
+#  pedido, fora dos horários de relatório (REPORT_TIMES_DUBLIN, item 10) o
+#  bot não analisa nem manda mensagem de NENHUMA moeda fora de CORE_SYMBOLS
+#  (BTC/ETH) — a varredura completa do watchlist (itens 3-7 acima pra outras
+#  moedas, dominância, ciclo, força relativa, altcoin do dia) fica pausada
+#  nos ticks de hora em hora. NOS HORÁRIOS DE RELATÓRIO, a varredura
+#  completa roda mesmo com essa restrição ligada — é o que alimenta o
+#  relatório categorizado e a altcoin do dia (item 11). A consulta manual
+#  por symbol continua funcionando pra qualquer par, a qualquer hora. Ver a
+#  constante perto de CORE_SYMBOLS pra desligar essa restrição de vez.
 #
 #  Cada mensagem de sinal vem com um checklist (✅/❌) dos itens que
 #  confirmaram aquele setup (RSI, volume, estrutura, EMA de contexto) e,
@@ -219,20 +243,58 @@
 #  near-miss (diagnóstico) mais os cenários de alta/baixa quando não tem
 #  nada disparado nem perto.
 #
-#  10) RELATÓRIO CATEGORIZADO (enviado em horários fixos do dia, ver
-#      REPORT_TIMES_UTC) — organiza o que a varredura já achou por horizonte
-#      de operação, em vez de mandar sinal por sinal solto: swing principal
-#      (BTC e ETH, sempre aparecem — com sinal ativo, ou os dois cenários
-#      touro/urso com faixa de preço quando não tem sinal), swing secundário
-#      (XRP + top 10 moedas por market cap da CoinMarketCap), até
-#      REPORT_SMALL_ALTS_N altcoins pequenas em setup, até REPORT_SCALP_N
-#      scalps ativos e até REPORT_BOTTOM_FISHING_N bottom fishing — sempre
-#      filtrando pelas melhores (porte/liquidez) pra não lotar o Telegram.
-#      Segue a mesma ideia dos vídeos do Diego de casar o timeframe do
-#      gráfico com o horizonte da operação (day trade -> 1h, swing de 1
-#      semana -> 4h, swing de 1 mês -> 1d, que ele trata como o setup mais
-#      forte de todos). Petróleo, ouro e mercado americano ficam de fora
-#      dessa versão (não existem na Binance) — só cripto por enquanto.
+#  10) RELATÓRIO CATEGORIZADO (enviado nos horários de REPORT_TIMES_DUBLIN
+#      — 03:00, 06:00, 13:30, 14:40, 18:45, 19:30, 20:40 e 22:00, HORÁRIO
+#      LOCAL DA IRLANDA, calculado com `zoneinfo` pra já se ajustar sozinho
+#      no horário de verão/inverno europeu sem precisar mexer na lista) —
+#      organiza o que a varredura já achou por horizonte de operação, em vez
+#      de mandar sinal por sinal solto: swing principal (BTC e ETH, sempre
+#      aparecem — com sinal ativo, ou os dois cenários touro/urso com faixa
+#      de preço quando não tem sinal), swing secundário (XRP + top 10 moedas
+#      por market cap da CoinMarketCap), até REPORT_SMALL_ALTS_N altcoins
+#      pequenas em setup, até REPORT_SCALP_N scalps ativos e até
+#      REPORT_BOTTOM_FISHING_N bottom fishing — sempre filtrando pelas
+#      melhores (porte/liquidez) pra não lotar o Telegram. Segue a mesma
+#      ideia dos vídeos do Diego de casar o timeframe do gráfico com o
+#      horizonte da operação (day trade -> 1h, swing de 1 semana -> 4h,
+#      swing de 1 mês -> 1d, que ele trata como o setup mais forte de
+#      todos). Petróleo, ouro e mercado americano ficam de fora dessa versão
+#      (não existem na Binance) — só cripto por enquanto.
+#
+#      MODO SILENCIOSO (por pedido): nos horários de REPORT_TIMES_DUBLIN que
+#      caem fora da hora cheia (13:30, 14:40, 18:45, 19:30, 20:40), tanto o
+#      status core (BTC/ETH) quanto o relatório categorizado só mandam
+#      mensagem quando tem sinal de verdade ativo em algo (BTC/ETH, o
+#      watchlist completo, dominância/ciclo/força relativa) — sem sinal
+#      nenhum, esses horários ficam 100% quietos (sem mensagem de
+#      preenchimento nem manchete de notícia). Na hora cheia de sempre
+#      (minuto < 5 de cada hora) o status core continua mandando sempre,
+#      com ou sem sinal — é aí que mora o "📍 Fique de olho" de sempre. O
+#      cron do GitHub Actions roda a cada 5 minutos (não mais só de hora em
+#      hora) só pra conseguir cair certo nesses horários — a maioria dessas
+#      execuções de 5 em 5 minutos sai sem fazer nada (nem chamada à
+#      Binance, nem mensagem), então não vira spam nem gasto de API.
+#
+#  11) ALTCOIN DO DIA (`find_altcoin_do_dia`, mandada nos mesmos horários do
+#      item 10, no máximo UMA vez por dia) — varre até TOP_N_SYMBOLS
+#      altcoins de maior volume (excluindo BTC/ETH e stablecoins) e, pra
+#      cada uma, converte pro PAR CONTRA BTC (ex.: SOLUSDT -> SOLBTC) e roda
+#      os mesmos checks de estrutura do bot (pullback, rompimento de LTA,
+#      OCOi) DIRETO no candle desse par — não é diferença de retorno
+#      percentual em USDT (isso já existe, é o item 5b), é o gráfico do par
+#      BTC de verdade, do jeito que o canal sempre mede força de altcoin
+#      (ver Live #7/#8 em NOTAS_LIVES_DIEGO.md). A bandeira (item 3c) no
+#      mesmo par BTC entra como confirmação extra quando bate, sem ser
+#      critério sozinho. Só entram candidatos com sinal de ALTA contra o
+#      BTC; entre os candidatos, escolhe UM só (melhor risco/retorno, com a
+#      bandeira intacta de alta como desempate) e manda como "recomendação
+#      de análise pra estudar" — não é sinal de entrada nem recomendação de
+#      investimento. O controle de "já mandou hoje" usa a mesma mensagem
+#      fixada da memória da última operação (chave ALTCOIN_DIA_MEMORIA_CHAVE
+#      dentro do DADOS_JSON), então funciona mesmo com o GitHub Actions não
+#      guardando nenhum estado entre execuções. Se nenhum horário do dia
+#      achar um candidato bom, nenhuma altcoin é mandada naquele dia (mais
+#      provável quando o mercado inteiro está fraco contra o BTC).
 #
 #  DIAGNÓSTICO E CONSULTA SOB DEMANDA (só nas execuções manuais, pelo botão
 #  "Run workflow" no GitHub Actions):
@@ -282,6 +344,7 @@ import urllib.request
 import urllib.error
 import urllib.parse
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 # ----------------------------------------------------------------------------
 # CONFIGURAÇÃO
@@ -422,6 +485,12 @@ VOLUME_TIER_LARGE_PCT = 0.34   # terço de maior volume do watchlist
 DOMINANCE_LOOKBACK_DAYS = 7
 DOMINANCE_DIVERGENCE_PP = 6.0  # diferença mínima (pontos percentuais) pra alertar
 
+# --- Ranking de força relativa individual contra o BTC (screener de short)
+# — "não shorte o ativo mais forte do mercado, procure o mais fraco que o
+# próprio BTC" (uma live) — reaproveita o mesmo retorno de DOMINANCE_LOOKBACK_DAYS ---
+RELATIVE_WEAKNESS_TOP_N = 5           # quantas moedas mais fracas mostrar no ranking
+RELATIVE_WEAKNESS_MIN_DIFF_PP = 3.0   # diferença mínima abaixo do retorno do BTC pra entrar no ranking
+
 # --- Termômetro de fase de ciclo (mania de memecoin) — lista curada porque a
 # Binance não classifica "memecoin" como categoria; pares que não existirem
 # mais (ou ainda não existirem) são simplesmente pulados na busca ---
@@ -527,19 +596,34 @@ CMC_FALLBACK_SYMBOLS = [
     "DOGEUSDT", "ADAUSDT", "TRXUSDT", "LINKUSDT", "AVAXUSDT",
 ]
 
-# --- Relatório categorizado (swing longo + destaques) — em vez de rodar em
-# TODA execução horária, só monta e manda nos horários abaixo (hora:minuto
-# em UTC). Pedido pra bater com a rotina de mercado americano (abertura,
-# meio do pregão, 20h, fechamento do candle diário) no horário da Irlanda —
-# como a Irlanda muda de fuso (IST/GMT) duas vezes por ano e o cron do
-# GitHub Actions só entende UTC fixo, esses horários valem pro horário de
-# verão europeu (IST, UTC+1); no horário de inverno (GMT) tudo sai 1h mais
-# cedo do que o pretendido, a menos que a lista seja ajustada ---
-REPORT_TIMES_UTC = [(5, 0), (13, 0), (13, 30), (18, 45), (19, 15), (22, 0)]
-REPORT_TIME_TOLERANCE_MIN = 8   # tolerância pra atraso do runner do GitHub Actions
+# --- Relatório categorizado + varredura de altcoin do dia — em vez de rodar
+# em TODA execução, só monta e manda nos horários abaixo, no HORÁRIO LOCAL
+# DA IRLANDA (pedido do usuário: 03:00, 06:00, 13:30, 14:40, 18:45, 19:30,
+# 20:40, 22:00 — cobre pré-abertura, abertura, meio do pregão e fechamento
+# do mercado americano, mais duas checagens de madrugada/manhã). Usa
+# `zoneinfo` (Europe/Dublin) em vez de um offset fixo em UTC porque a
+# Irlanda muda de fuso duas vezes por ano (IST = UTC+1 no verão europeu,
+# GMT = UTC+0 no inverno) — assim os horários batem certo o ano inteiro sem
+# precisar ajustar a lista manualmente a cada troca de horário. O cron do
+# GitHub Actions (vela_monitor.yml) precisa rodar a cada poucos minutos
+# (não só de hora em hora) pra conseguir cair perto de horários como 13:30
+# ou 14:40 dentro da tolerância abaixo. ---
+REPORT_TIMES_DUBLIN = [(3, 0), (6, 0), (13, 30), (14, 40), (18, 45), (19, 30), (20, 40), (22, 0)]
+REPORT_TIME_TOLERANCE_MIN = 4   # tolerância pra atraso do runner do GitHub Actions (cron roda a cada 5 min)
 REPORT_SMALL_ALTS_N = 5
 REPORT_SCALP_N = 2
 REPORT_BOTTOM_FISHING_N = 2
+
+# --- Altcoin do dia (swing "pra estudar"): nos horários de REPORT_TIMES_DUBLIN
+# acima, varre até TOP_N_SYMBOLS altcoins de maior volume e, pra cada uma,
+# analisa o PAR CONTRA BTC (ex.: SOLUSDT -> SOLBTC), do jeito que o canal
+# sempre analisa força de altcoin — não é % de retorno em USDT, é o gráfico
+# do par BTC rodando pelos mesmos checks de padrão técnico do bot. Filtra só
+# candidatos com viés de alta contra o BTC e manda UM só, no máximo uma vez
+# por dia (controle de duplicado fica na mesma mensagem fixada da memória de
+# operação — ver ALTCOIN_DIA_MEMORIA_CHAVE) — é uma recomendação de análise
+# pra estudar, não é sinal de entrada. Ver `find_altcoin_do_dia`. ---
+ALTCOIN_DIA_MEMORIA_CHAVE = "_altcoin_do_dia"
 
 # --- Status "core" — mandado em TODA rodada horária, mas só pra um punhado
 # fixo de moedas (em vez de mensagem solta pra qualquer moeda do watchlist
@@ -1406,6 +1490,51 @@ def detect_market_trend(candles_d, candles_w=None, candles_m=None):
     return "neutra"
 
 
+def check_weekly_ema_cross(symbol, candles_w, ema_fast_period=MARKET_TREND_WEEKLY_EMA_FAST,
+                            ema_slow_period=MARKET_TREND_WEEKLY_EMA_SLOW):
+    """
+    Cruzamento de EMA50/EMA200 no semanal (mesmo par que `detect_market_trend`
+    já usa pra tendência majoritária) — evento raro: uma live citou que o
+    cruzamento em andamento era o primeiro desde 2023 (que foi exatamente a
+    virada pro bull market atual), tratando isso como confirmação de alta
+    convicção pra montar posição de mais longo prazo. Dispara só na vela em
+    que o cruzamento acontece de verdade (mesma lógica de "primeiro toque"
+    usada nos outros sinais) — não fica repetindo enquanto a relação entre
+    as médias continua igual. É um sinal de CONTEXTO (não gera COMPRAR/
+    VENDER isolado com entrada/stop/alvo — não tem um nível técnico natural
+    pra isso), mostrado junto com os outros blocos de leitura no status
+    horário e na análise detalhada.
+    """
+    if len(candles_w) < ema_slow_period + 5:
+        return None
+    closes = [c["close"] for c in candles_w]
+    ema_fast_now = compute_ema(closes, ema_fast_period)
+    ema_slow_now = compute_ema(closes, ema_slow_period)
+    ema_fast_prev = compute_ema(closes[:-1], ema_fast_period)
+    ema_slow_prev = compute_ema(closes[:-1], ema_slow_period)
+    if None in (ema_fast_now, ema_slow_now, ema_fast_prev, ema_slow_prev):
+        return None
+
+    cruzou_para_cima = ema_fast_prev <= ema_slow_prev and ema_fast_now > ema_slow_now
+    cruzou_para_baixo = ema_fast_prev >= ema_slow_prev and ema_fast_now < ema_slow_now
+    if not (cruzou_para_cima or cruzou_para_baixo):
+        return None
+
+    direcao = "alta" if cruzou_para_cima else "baixa"
+    nome_cruzamento = "golden cross" if cruzou_para_cima else "death cross"
+    texto = (
+        f"🔀 Cruzamento de EMA{ema_fast_period}/EMA{ema_slow_period} no semanal em {symbol} "
+        f"({nome_cruzamento}, viés de {direcao}) — cruzamento de médias de longo prazo é um "
+        f"evento raro; quando acontece, costuma marcar mudança ou confirmação de tendência de "
+        f"mais longo prazo, com peso maior que a maioria dos outros sinais do bot."
+    )
+    return {
+        "symbol": symbol, "direcao": direcao, "timeframe": "1w",
+        "ema_fast": ema_fast_now, "ema_slow": ema_slow_now,
+        "texto": texto,
+    }
+
+
 def _alinhado_com_tendencia(acao, market_trend):
     if market_trend == "alta" and acao == "VENDER":
         return False
@@ -2235,7 +2364,12 @@ def compute_market_returns(watchlist):
     Calcula o retorno do BTC e a média de retorno das alts do watchlist nos
     últimos DOMINANCE_LOOKBACK_DAYS dias. Centralizado aqui porque tanto o
     check de dominância quanto o termômetro de fase de ciclo (mais abaixo)
-    precisam desses dois números, e assim evita buscar tudo de novo duas vezes.
+    e o ranking de força relativa (mais abaixo também) precisam desses
+    números, e assim evita buscar tudo de novo em cada um.
+
+    Retorna (btc_return, avg_alt_return, alt_returns) — `alt_returns` é a
+    lista individual [(symbol, retorno_pct), ...] de cada moeda que deu
+    pra calcular, pra quem precisar rankear moeda a moeda (não só a média).
     """
     btc_candles = fetch_klines("BTCUSDT", "1d", DOMINANCE_LOOKBACK_DAYS + 5)
     btc_return = pct_return(btc_candles)
@@ -2248,12 +2382,12 @@ def compute_market_returns(watchlist):
             c = fetch_klines(symbol, "1d", DOMINANCE_LOOKBACK_DAYS + 5)
             r = pct_return(c)
             if r is not None:
-                alt_returns.append(r)
+                alt_returns.append((symbol, r))
         except Exception:
             continue
-    avg_alt_return = sum(alt_returns) / len(alt_returns) if alt_returns else None
+    avg_alt_return = (sum(r for _, r in alt_returns) / len(alt_returns)) if alt_returns else None
 
-    return btc_return, avg_alt_return
+    return btc_return, avg_alt_return, alt_returns
 
 
 def check_dominance_altseason(btc_return, avg_alt_return):
@@ -2292,6 +2426,242 @@ def check_dominance_altseason(btc_return, avg_alt_return):
         "explicacao": explicacao,
         "aviso": "Proxy baseado em performance relativa do watchlist, não é o índice oficial de dominância (BTC.D).",
     }
+
+
+def rank_relative_weakness_vs_btc(btc_return, alt_returns, top_n=RELATIVE_WEAKNESS_TOP_N,
+                                   min_diff_pp=RELATIVE_WEAKNESS_MIN_DIFF_PP):
+    """
+    Screener de candidatos a short por força relativa individual contra o
+    BTC — de uma live: não faz sentido shortar o ativo mais forte do
+    mercado (a metáfora usada foi "shortar o cavalo mais forte da corrida"),
+    os candidatos de verdade são as moedas perdendo de forma clara do
+    próprio BTC no mesmo período, não qualquer moeda em queda isolada.
+    Reaproveita os mesmos retornos de `DOMINANCE_LOOKBACK_DAYS` dias que o
+    sinal de dominância/altseason já calcula (sinal 5), só que rankeando
+    moeda a moeda em vez de olhar só a média do watchlist.
+
+    É um sinal de CONTEXTO/screener (acao "OBSERVAR", sem entrada/stop/alvo
+    — a ideia é apontar candidatos, não substituir a análise técnica
+    específica de cada um antes de short).
+    """
+    if btc_return is None or not alt_returns:
+        return None
+    candidatos = [(symbol, r, btc_return - r) for symbol, r in alt_returns if (btc_return - r) >= min_diff_pp]
+    if not candidatos:
+        return None
+    candidatos.sort(key=lambda item: -item[2])
+    piores = candidatos[:top_n]
+
+    linhas_detalhe = [
+        f"{symbol.replace('USDT', '')}: {r:+.1f}% ({diff:.1f}pp abaixo do BTC)"
+        for symbol, r, diff in piores
+    ]
+
+    return {
+        "symbol": "MERCADO", "estilo": "MACRO", "acao": "OBSERVAR",
+        "titulo": "Moedas mais fracas que o BTC (candidatas a short)",
+        "timeframe": f"1d, {DOMINANCE_LOOKBACK_DAYS}d",
+        "detalhes": [f"Retorno BTC ({DOMINANCE_LOOKBACK_DAYS}d): {btc_return:+.1f}%"] + linhas_detalhe,
+        "explicacao": (
+            f"Ranking de retorno individual de cada moeda do watchlist contra o BTC nos últimos "
+            f"{DOMINANCE_LOOKBACK_DAYS} dias — a lógica é que shortar o ativo mais forte do "
+            "mercado tende a dar errado; os candidatos de verdade pra short são os que estão "
+            "perdendo do BTC por uma margem clara, não qualquer moeda em queda isolada."
+        ),
+        "aviso": (
+            "Isso é só um screener de força relativa — não substitui uma análise técnica própria "
+            "do ativo (estrutura, RSI, volume) antes de considerar um short."
+        ),
+    }
+
+
+# ----------------------------------------------------------------------------
+# ALTCOIN DO DIA — varredura contra o PAR EM BTC (não é % de retorno em USDT)
+# ----------------------------------------------------------------------------
+
+def _reward_risk_ratio(sig):
+    """RR aproximado de um sinal (entry/stop/primeiro alvo) — usado só pra
+    ordenar candidatos da altcoin do dia, não aparece pro usuário como está."""
+    entry = sig.get("entry_price")
+    stop = sig.get("stop_price")
+    alvos = sig.get("target_prices") or ([sig["target_price"]] if sig.get("target_price") is not None else [])
+    if entry is None or stop is None or not alvos:
+        return 0.0
+    risco = abs(entry - stop)
+    if risco <= 0:
+        return 0.0
+    retorno = abs(alvos[0] - entry)
+    return retorno / risco
+
+
+def find_altcoin_do_dia(watchlist, market_trend="neutra"):
+    """
+    Varre até TOP_N_SYMBOLS altcoins de maior volume (excluindo CORE_SYMBOLS
+    e stablecoins) e, pra cada uma, converte pro PAR CONTRA BTC (ex.:
+    SOLUSDT -> SOLBTC) e roda os mesmos checks de estrutura do bot
+    diretamente nesse par — não é diferença de retorno percentual em USDT,
+    é o gráfico do par BTC de verdade, do jeito que o canal sempre analisa
+    força de altcoin (ver Live #7/#8 em NOTAS_LIVES_DIEGO.md).
+
+    Só entram candidatos com pelo menos um sinal de estrutura de ALTA
+    (COMPRAR) contra o BTC — pullback no 0.382, rompimento de LTA ou OCOi.
+    A bandeira (Fibonacci + volume) no par BTC é usada como confirmação
+    extra quando bate, não como critério sozinho (não tem entrada/stop/alvo
+    próprios pra virar recomendação sozinha).
+
+    Escolhe UM candidato só (melhor risco/retorno, com bônus de bandeira
+    "intacta" de alta como critério de desempate) e devolve o sinal dele
+    (dict no mesmo formato dos outros `check_*`, com o par BTC em "symbol")
+    junto com o par USDT original — ou None se não achou nenhum candidato.
+    Não aplica os filtros de alinhamento com `market_trend` (esse trend é
+    calculado a partir do BTC em USDT, não faz sentido pro par BTC) nem
+    "plano B" — é uma recomendação de estudo, não um sinal de entrada.
+    """
+    candidatos = []
+    for symbol in watchlist:
+        if symbol in CORE_SYMBOLS or not symbol.endswith("USDT"):
+            continue
+        base = symbol[:-4]
+        if base in STABLE_BASES or base == "BTC":
+            continue
+        btc_pair = f"{base}BTC"
+        try:
+            candles_btc = fetch_klines(btc_pair, INTERVAL, KLINES_LIMIT)
+        except Exception:
+            continue  # nem toda moeda tem par direto contra BTC na Binance
+        if len(candles_btc) < (2 * PIVOT_LEN + 20):
+            continue
+
+        sinais_estrutura = []
+        for check_fn, extra_args in (
+            (check_pullback, ()),
+            (check_trendline_breakout, (INTERVAL,)),
+            (check_oco_pattern, (INTERVAL,)),
+        ):
+            try:
+                sig = check_fn(btc_pair, candles_btc, *extra_args)
+            except Exception:
+                sig = None
+            if sig and sig.get("acao") == "COMPRAR":
+                sinais_estrutura.append(sig)
+
+        if not sinais_estrutura:
+            continue
+
+        try:
+            bandeira = classifica_bandeira(btc_pair, candles_btc, timeframe_label=INTERVAL)
+        except Exception:
+            bandeira = None
+        bandeira_confirma = bool(
+            bandeira and bandeira["status"] == "intacta" and bandeira["direcao_perna"] == "alta"
+        )
+
+        melhor_sig = max(sinais_estrutura, key=_reward_risk_ratio)
+        candidatos.append({
+            "symbol_usdt": symbol,
+            "btc_pair": btc_pair,
+            "sig": melhor_sig,
+            "rr": _reward_risk_ratio(melhor_sig),
+            "bandeira_confirma": bandeira_confirma,
+            "bandeira": bandeira,
+        })
+
+    if not candidatos:
+        return None
+
+    candidatos.sort(key=lambda c: (c["bandeira_confirma"], c["rr"]), reverse=True)
+    return candidatos[0]
+
+
+def format_altcoin_do_dia_message(candidato):
+    """
+    Monta a mensagem da altcoin do dia a partir do candidato escolhido por
+    `find_altcoin_do_dia` — reaproveita o mesmo "cartão de operação" dos
+    outros sinais (entrada/stop/alvo/explicação), mas com um cabeçalho e um
+    aviso próprios deixando claro que é uma recomendação de análise pra
+    estudar (o par contra BTC), não um sinal de entrada.
+    """
+    sig = candidato["sig"]
+    sym_usdt = _fmt_symbol(candidato["symbol_usdt"])
+    sym_btc = _fmt_symbol(candidato["btc_pair"])
+
+    linhas = [
+        "VELA MONITOR", "",
+        f"📚 ALTCOIN PRA ESTUDAR HOJE — {sym_usdt} (analisada contra o BTC: {sym_btc})",
+        "─" * 24,
+    ]
+    linhas.extend(_render_signal_core(sig))
+    if candidato.get("bandeira_confirma") and candidato.get("bandeira"):
+        linhas.append("")
+        linhas.append(f"🏳️ Confirmação extra — {candidato['bandeira']['texto']}")
+    linhas.append("")
+    linhas.append(
+        "📖 Isso é uma RECOMENDAÇÃO DE ANÁLISE pra você estudar — o setup foi achado olhando "
+        f"o gráfico de {sym_btc} (o par contra BTC, não o par contra USDT), do jeito que o canal "
+        "sempre mede força de altcoin. Não é um sinal de entrada nem recomendação de investimento; "
+        "vale sua própria conferência antes de qualquer decisão."
+    )
+    return "\n".join(linhas)
+
+
+def _salva_memoria_pinned(dados_por_simbolo):
+    """
+    Fixa (ou edita a fixação existente com) o texto de `_texto_memoria`
+    pros dados passados — extraído de `atualiza_memoria_ultima_operacao`
+    pra ser reaproveitado também pelo controle de "altcoin do dia já
+    mandada hoje" (mesma mensagem fixada, chave própria dentro do JSON).
+    """
+    if not BOT_TOKEN or not CHAT_ID:
+        return
+    message_id, _ = get_memoria_pinned()
+    texto = _texto_memoria(dados_por_simbolo)
+    try:
+        if message_id is not None:
+            resp = _telegram_request("editMessageText", {
+                "chat_id": CHAT_ID, "message_id": message_id, "text": texto,
+                "disable_web_page_preview": True,
+            })
+            if resp and resp.get("ok"):
+                return
+            print("  aviso: não deu pra editar a mensagem de memória fixada — mandando uma nova")
+        resp = _telegram_request("sendMessage", {
+            "chat_id": CHAT_ID, "text": texto, "disable_web_page_preview": True,
+        })
+        if resp and resp.get("ok"):
+            novo_id = resp["result"]["message_id"]
+            _telegram_request("pinChatMessage", {
+                "chat_id": CHAT_ID, "message_id": novo_id, "disable_notification": True,
+            })
+        else:
+            print("  aviso: não deu pra mandar/fixar a mensagem de memória")
+    except Exception as e:
+        print(f"  erro salvando a memória fixada ({e})")
+
+
+def altcoin_do_dia_ja_enviada_hoje(dados_por_simbolo):
+    """True se já mandamos uma altcoin do dia na data de HOJE (horário da
+    Irlanda) — usa o mesmo pin de memória da última operação (chave
+    ALTCOIN_DIA_MEMORIA_CHAVE), sem precisar de nenhum estado no repositório
+    git (que o GitHub Actions não persiste entre execuções)."""
+    info = dados_por_simbolo.get(ALTCOIN_DIA_MEMORIA_CHAVE)
+    if not info:
+        return False
+    hoje = datetime.now(ZoneInfo("Europe/Dublin")).strftime("%Y-%m-%d")
+    return info.get("data") == hoje
+
+
+def registra_altcoin_do_dia_enviada(dados_por_simbolo, candidato):
+    """Marca (na mesma memória fixada) que a altcoin do dia de hoje já foi
+    mandada, pra nenhum outro horário de relatório mandar de novo no mesmo
+    dia — e fixa a mensagem atualizada."""
+    hoje = datetime.now(ZoneInfo("Europe/Dublin")).strftime("%Y-%m-%d")
+    dados_novos = dict(dados_por_simbolo)
+    dados_novos[ALTCOIN_DIA_MEMORIA_CHAVE] = {
+        "data": hoje,
+        "symbol_usdt": candidato["symbol_usdt"],
+        "btc_pair": candidato["btc_pair"],
+    }
+    _salva_memoria_pinned(dados_novos)
 
 
 # ----------------------------------------------------------------------------
@@ -3346,6 +3716,24 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
             linhas.append("")
             linhas.append(bandeira_3d["texto"])
 
+    if candles_w and len(candles_w) >= (2 * PIVOT_LEN + 10):
+        try:
+            bandeira_w = classifica_bandeira(symbol, candles_w, timeframe_label="1w")
+        except Exception:
+            bandeira_w = None
+        if bandeira_w:
+            linhas.append("")
+            linhas.append(bandeira_w["texto"])
+
+    if candles_w:
+        try:
+            ema_cross = check_weekly_ema_cross(symbol, candles_w)
+        except Exception:
+            ema_cross = None
+        if ema_cross:
+            linhas.append("")
+            linhas.append(ema_cross["texto"])
+
     linhas.append("")
     linhas.append(
         "⚠️ Isso é uma leitura automática baseada nas mesmas regras dos sinais do bot "
@@ -3668,28 +4056,7 @@ def atualiza_memoria_ultima_operacao(sinais_por_moeda):
     if not mudou:
         return dados_antigos
 
-    texto = _texto_memoria(dados_novos)
-    try:
-        if message_id is not None:
-            resp = _telegram_request("editMessageText", {
-                "chat_id": CHAT_ID, "message_id": message_id, "text": texto,
-                "disable_web_page_preview": True,
-            })
-            if resp and resp.get("ok"):
-                return dados_antigos
-            print("  aviso: não deu pra editar a mensagem de memória fixada — mandando uma nova")
-        resp = _telegram_request("sendMessage", {
-            "chat_id": CHAT_ID, "text": texto, "disable_web_page_preview": True,
-        })
-        if resp and resp.get("ok"):
-            novo_id = resp["result"]["message_id"]
-            _telegram_request("pinChatMessage", {
-                "chat_id": CHAT_ID, "message_id": novo_id, "disable_notification": True,
-            })
-        else:
-            print("  aviso: não deu pra mandar/fixar a mensagem de memória")
-    except Exception as e:
-        print(f"  erro atualizando a memória da última operação ({e})")
+    _salva_memoria_pinned(dados_novos)
     return dados_antigos
 
 
@@ -4172,7 +4539,7 @@ def build_bull_bear_scenario(symbol, candles_d):
 
 
 # ----------------------------------------------------------------------------
-# RELATÓRIO CATEGORIZADO — enviado nos horários fixos de REPORT_TIMES_UTC
+# RELATÓRIO CATEGORIZADO — enviado nos horários fixos de REPORT_TIMES_DUBLIN
 # ----------------------------------------------------------------------------
 
 def _tier_rank(tier):
@@ -4297,6 +4664,23 @@ def build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista
                     if bandeira_3d and bandeira_3d["status"] != "indefinida":
                         bloco.append("")
                         bloco.append(bandeira_3d["texto"])
+                candles_w_extra = entry_candles.get("1w")
+                if candles_w_extra and len(candles_w_extra) >= (2 * PIVOT_LEN + 10):
+                    try:
+                        bandeira_w = classifica_bandeira(symbol, candles_w_extra, timeframe_label="1w")
+                    except Exception:
+                        bandeira_w = None
+                    if bandeira_w and bandeira_w["status"] != "indefinida":
+                        bloco.append("")
+                        bloco.append(bandeira_w["texto"])
+                if candles_w_extra:
+                    try:
+                        ema_cross = check_weekly_ema_cross(symbol, candles_w_extra)
+                    except Exception:
+                        ema_cross = None
+                    if ema_cross:
+                        bloco.append("")
+                        bloco.append(ema_cross["texto"])
             bloco.append("")
             bloco.append(_ultima_operacao_texto(memoria_anterior.get(symbol), price_now))
             partes.append("\n".join(bloco))
@@ -4430,10 +4814,15 @@ def main():
     is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
     symbol_query = os.environ.get("SYMBOL_QUERY", "").strip()
     agora = datetime.now(timezone.utc)
-    agora_min = agora.hour * 60 + agora.minute
+    # Horário local da Irlanda (via zoneinfo, não um offset fixo) só pra
+    # decidir se é um dos horários de REPORT_TIMES_DUBLIN — o resto do bot
+    # (timestamps de log, memória da última operação) continua em UTC.
+    agora_dublin = datetime.now(ZoneInfo("Europe/Dublin"))
+    agora_min_dublin = agora_dublin.hour * 60 + agora_dublin.minute
+    is_hourly_tick = agora.minute < 5  # cron roda a cada 5 min — só o "tick" de cada hora cheia
     is_report_time = (not is_manual) and any(
-        abs(agora_min - (h * 60 + m)) <= REPORT_TIME_TOLERANCE_MIN
-        for h, m in REPORT_TIMES_UTC
+        abs(agora_min_dublin - (h * 60 + m)) <= REPORT_TIME_TOLERANCE_MIN
+        for h, m in REPORT_TIMES_DUBLIN
     )
     # A varredura pesada no watchlist inteiro (50 moedas x ~5 chamadas cada —
     # o que estava deixando toda rodada demorada) só roda nos horários do
@@ -4441,13 +4830,27 @@ def main():
     # pedida (aí faz sentido ver o diagnóstico de todo o watchlist). Se você
     # roda manual só pra perguntar de uma moeda (campo "symbol" preenchido),
     # pula a varredura pesada — vai direto pra análise daquela moeda, bem
-    # mais rápido. Nas rodadas normais de hora em hora, o bot analisa só
-    # CORE_SYMBOLS (BTC e ETH).
+    # mais rápido. Nos ticks de hora em hora (fora dos horários de
+    # relatório), o bot analisa só CORE_SYMBOLS (BTC e ETH).
     do_full_scan = is_report_time or (is_manual and not symbol_query)
-    # Com SOMENTE_CORE_SYMBOLS ligado, a varredura completa fica DESLIGADA de
-    # verdade (nem roda por baixo dos panos) — o bot nunca analisa nem manda
-    # nada de nenhuma moeda fora de CORE_SYMBOLS.
-    full_scan_ativo = do_full_scan and not SOMENTE_CORE_SYMBOLS
+    # Com SOMENTE_CORE_SYMBOLS ligado, a varredura completa do watchlist fica
+    # DESLIGADA fora dos horários de relatório (nem roda por baixo dos
+    # panos). Nos horários de REPORT_TIMES_DUBLIN ela roda mesmo assim —
+    # é o que alimenta o relatório categorizado, dominância/ciclo, o
+    # ranking de força relativa e a varredura da altcoin do dia (todos
+    # precisam do watchlist completo pra funcionar).
+    full_scan_ativo = do_full_scan and (is_report_time or not SOMENTE_CORE_SYMBOLS)
+
+    # Com o cron rodando a cada poucos minutos (pra conseguir cair certo nos
+    # horários de REPORT_TIMES_DUBLIN, que têm minuto != 0), a maioria das
+    # execuções não deve fazer nada: só os ticks de hora cheia (comportamento
+    # de sempre), os horários de relatório, ou uma execução manual valem a
+    # pena rodar — os ticks "no meio do caminho" saem cedo sem gastar chamada
+    # nenhuma na Binance nem mandar mensagem nenhuma.
+    if not (is_hourly_tick or is_report_time or is_manual):
+        print(f"[{datetime.now(timezone.utc).isoformat()}] Tick de rotina (fora da hora cheia e fora "
+              f"de um horário de relatório) — nada a fazer nesse ciclo.")
+        return
 
     # Tendência majoritária do mercado (a partir do BTC, cruzando diário +
     # semanal + mensal) — calculada uma vez por rodada e aplicada a TODO
@@ -4468,6 +4871,7 @@ def main():
     sinais_por_moeda = {}
     todos_diagnosticos = []
     encontrados = 0
+    houve_sinal_scan_completo = False  # dominância/ciclo/força relativa — usado pra decidir se o relatório categorizado tem o que mostrar
 
     if full_scan_ativo:
         print(f"[{datetime.now(timezone.utc).isoformat()}] Buscando os {TOP_N_SYMBOLS} pares "
@@ -4502,15 +4906,16 @@ def main():
         print(f"[{datetime.now(timezone.utc).isoformat()}] Verificando dominância BTC/altseason "
               f"e termômetro de ciclo...")
         try:
-            btc_return, avg_alt_return = compute_market_returns(watchlist)
+            btc_return, avg_alt_return, alt_returns = compute_market_returns(watchlist)
         except Exception as e:
             print(f"  erro calculando retornos de mercado ({e})")
-            btc_return, avg_alt_return = None, None
+            btc_return, avg_alt_return, alt_returns = None, None, []
 
         try:
             dom_sig = check_dominance_altseason(btc_return, avg_alt_return)
             if dom_sig:
                 encontrados += 1
+                houve_sinal_scan_completo = True
                 msg = format_signal_message(dom_sig)
                 print("-" * 60)
                 print(msg)
@@ -4525,6 +4930,7 @@ def main():
             cycle_sig = check_cycle_phase(btc_return, avg_alt_return)
             if cycle_sig:
                 encontrados += 1
+                houve_sinal_scan_completo = True
                 msg = format_signal_message(cycle_sig)
                 print("-" * 60)
                 print(msg)
@@ -4534,6 +4940,54 @@ def main():
                 print("  sem sinal de mania de memecoin no momento")
         except Exception as e:
             print(f"  erro no termômetro de ciclo ({e})")
+
+        try:
+            weak_sig = rank_relative_weakness_vs_btc(btc_return, alt_returns)
+            if weak_sig:
+                encontrados += 1
+                houve_sinal_scan_completo = True
+                msg = format_signal_message(weak_sig)
+                print("-" * 60)
+                print(msg)
+                ok = send_telegram_message(msg)
+                print("  -> enviado pro Telegram" if ok else "  -> FALHOU ao enviar")
+            else:
+                print("  sem candidato claro de força relativa fraca contra o BTC no momento")
+        except Exception as e:
+            print(f"  erro no ranking de força relativa vs BTC ({e})")
+
+        print(f"[{datetime.now(timezone.utc).isoformat()}] Varredura da altcoin do dia "
+              f"(pares contra BTC, não contra USDT)...")
+        try:
+            _, dados_memoria_check = get_memoria_pinned()
+        except Exception as e:
+            print(f"  erro lendo a memória fixada pra checar a altcoin do dia ({e})")
+            dados_memoria_check = {}
+        if altcoin_do_dia_ja_enviada_hoje(dados_memoria_check):
+            info_dia = dados_memoria_check.get(ALTCOIN_DIA_MEMORIA_CHAVE, {})
+            print(f"  altcoin do dia já enviada hoje ({info_dia.get('symbol_usdt', '?')}) — pulando.")
+        else:
+            try:
+                candidato_altcoin = find_altcoin_do_dia(watchlist, market_trend=market_trend)
+            except Exception as e:
+                print(f"  erro na varredura da altcoin do dia ({e})")
+                candidato_altcoin = None
+            if candidato_altcoin:
+                encontrados += 1
+                msg = format_altcoin_do_dia_message(candidato_altcoin)
+                print("-" * 60)
+                print(msg)
+                ok = send_telegram_message(msg)
+                print("  -> altcoin do dia enviada" if ok else "  -> FALHOU ao enviar a altcoin do dia")
+                if ok:
+                    try:
+                        _, dados_memoria_fresca = get_memoria_pinned()
+                        registra_altcoin_do_dia_enviada(dados_memoria_fresca, candidato_altcoin)
+                    except Exception as e:
+                        print(f"  erro registrando a altcoin do dia na memória fixada ({e})")
+            else:
+                print("  nenhuma altcoin com estrutura de alta contra o BTC agora — sem recomendação "
+                      "nesse horário (tenta de novo no próximo).")
     else:
         if SOMENTE_CORE_SYMBOLS:
             print(f"[{datetime.now(timezone.utc).isoformat()}] Restrito a {', '.join(CORE_SYMBOLS)} por "
@@ -4586,6 +5040,7 @@ def main():
                 "1h": fetch_klines(sym, "1h", 100),
                 "5m": fetch_klines(sym, "5m", CONFLUENCE_5M_LIMIT),
                 "3d": fetch_klines(sym, "3d", 200),
+                "1w": fetch_klines(sym, "1w", 1000),
             }
         except Exception as e:
             print(f"  erro buscando candles extra (fique de olho) de {sym} ({e})")
@@ -4596,22 +5051,39 @@ def main():
         print(f"  erro atualizando a memória da última operação ({e})")
         memoria_anterior = {}
 
-    try:
-        status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend=market_trend, memoria_anterior=memoria_anterior, candles_entry_extra=candles_entry_extra)
-        ok = send_telegram_message(status_msg)
-        print("  -> status core enviado" if ok else "  -> FALHOU ao enviar o status core")
-    except Exception as e:
-        print(f"  erro montando o status core ({e})")
+    # Fora da hora cheia e de uma execução manual, o status core (BTC/ETH) só
+    # manda mensagem se tiver sinal de verdade ativo em algum dos dois — por
+    # pedido, os horários extra de REPORT_TIMES_DUBLIN que caem "no meio da
+    # hora" (13:30, 14:40, 18:45, 19:30, 20:40) não devem gerar mensagem
+    # quando não é sinal, só o relatório/altcoin do dia quando têm conteúdo.
+    # Na hora cheia (comportamento de sempre) continua enviando sempre, com
+    # ou sem sinal ativo — é aí que mora o "📍 Fique de olho".
+    envia_status_core = is_hourly_tick or is_manual or (is_report_time and sinais_moeda_count > 0)
+    if envia_status_core:
+        try:
+            status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend=market_trend, memoria_anterior=memoria_anterior, candles_entry_extra=candles_entry_extra)
+            ok = send_telegram_message(status_msg)
+            print("  -> status core enviado" if ok else "  -> FALHOU ao enviar o status core")
+        except Exception as e:
+            print(f"  erro montando o status core ({e})")
+    else:
+        print(f"[{datetime.now(timezone.utc).isoformat()}] Sem sinal ativo em BTC/ETH nesse horário de "
+              f"relatório — status core não enviado (por pedido, só manda quando é sinal de verdade).")
 
     if is_report_time:
-        print(f"[{datetime.now(timezone.utc).isoformat()}] Horário de relatório categorizado — montando...")
-        try:
-            report_msg = build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra,
-                                                         market_trend=market_trend, only_core=SOMENTE_CORE_SYMBOLS)
-            ok = send_telegram_message(report_msg)
-            print("  -> relatório categorizado enviado" if ok else "  -> FALHOU ao enviar o relatório categorizado")
-        except Exception as e:
-            print(f"  erro montando o relatório categorizado ({e})")
+        if sinais_moeda_count > 0 or houve_sinal_scan_completo:
+            print(f"[{datetime.now(timezone.utc).isoformat()}] Horário de relatório categorizado — montando...")
+            try:
+                report_msg = build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_extra,
+                                                             market_trend=market_trend, only_core=SOMENTE_CORE_SYMBOLS)
+                ok = send_telegram_message(report_msg)
+                print("  -> relatório categorizado enviado" if ok else "  -> FALHOU ao enviar o relatório categorizado")
+            except Exception as e:
+                print(f"  erro montando o relatório categorizado ({e})")
+        else:
+            print(f"[{datetime.now(timezone.utc).isoformat()}] Horário de relatório categorizado sem "
+                  f"nenhum sinal de verdade no watchlist — relatório não enviado (só a altcoin do dia, "
+                  f"se a varredura achou uma).")
 
     if is_manual:
         if do_full_scan:
@@ -4632,7 +5104,10 @@ def main():
             ok = send_telegram_message(deep_msg)
             print("  -> análise da moeda enviada" if ok else "  -> FALHOU ao enviar a análise da moeda")
 
-    if sinais_moeda_count == 0:
+    # O fallback de notícias é um "preenchimento" pro status de hora em hora
+    # de sempre — nos horários extra de relatório sem sinal, por pedido, o
+    # bot fica quieto de verdade (nada de mensagem de preenchimento também).
+    if sinais_moeda_count == 0 and (is_hourly_tick or is_manual):
         print(f"[{datetime.now(timezone.utc).isoformat()}] Nenhum sinal de moeda nessa "
               f"rodada — buscando manchetes da Reuters como fallback...")
         try:
