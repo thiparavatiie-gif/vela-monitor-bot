@@ -259,7 +259,7 @@
 #      horizonte da operação (day trade -> 1h, swing de 1 semana -> 4h,
 #      swing de 1 mês -> 1d, que ele trata como o setup mais forte de
 #      todos). Petróleo, ouro e mercado americano ficam de fora dessa versão
-#      (não existem na Binance) — só cripto por enquanto.
+#      (não existem na Bybit) — só cripto por enquanto.
 #
 #      MODO SILENCIOSO (por pedido): nos horários de REPORT_TIMES_DUBLIN que
 #      caem fora da hora cheia (13:30, 14:40, 18:45, 19:30, 20:40), tanto o
@@ -273,7 +273,7 @@
 #      cron do GitHub Actions roda a cada 5 minutos (não mais só de hora em
 #      hora) só pra conseguir cair certo nesses horários — a maioria dessas
 #      execuções de 5 em 5 minutos sai sem fazer nada (nem chamada à
-#      Binance, nem mensagem), então não vira spam nem gasto de API.
+#      Bybit, nem mensagem), então não vira spam nem gasto de API.
 #
 #  11) ALTCOIN DO DIA (`find_altcoin_do_dia`, mandada nos mesmos horários do
 #      item 10, no máximo UMA vez por dia) — varre até TOP_N_SYMBOLS
@@ -313,11 +313,11 @@
 #     por um modelo de IA (o script não chama nenhum modelo de linguagem).
 #
 #  Watchlist dinâmica: em vez de uma lista fixa, a varredura busca os
-#  TOP_N_SYMBOLS pares USDT de maior volume na Binance a cada rodada (ideia
+#  TOP_N_SYMBOLS pares USDT de maior volume na Bybit a cada rodada (ideia
 #  de uma live do canal: a IA dele varre um universo grande de moedas, não
 #  uma lista fixa pequena). Cada moeda recebe uma tag de "porte" (grande/
 #  médio/pequeno) baseada no rank de volume dentro do próprio watchlist —
-#  um PROXY de market cap, já que a Binance não fornece isso — usada nos
+#  um PROXY de market cap, já que a Bybit não fornece isso — usada nos
 #  sinais de reversão porque o canal comentou preferir moedas de menor
 #  porte pra esse tipo de setup.
 #
@@ -330,7 +330,7 @@
 #  investimento nem garantia de resultado.
 #
 #  Onde rodar: este script PRECISA rodar fora do sandbox do Claude (a
-#  Binance e o Telegram estão bloqueados por política da organização tanto
+#  Bybit e o Telegram estão bloqueados por política da organização tanto
 #  no container de nuvem quanto na VM do bridge do computador). Rode
 #  localmente no seu Mac (cron/launchd) ou via GitHub Actions — instruções
 #  completas no README_vela_monitor_bot.md.
@@ -354,7 +354,7 @@ BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 
 # Watchlist — em vez de uma lista fixa pequena, a varredura busca dinamicamente
-# os N pares USDT de maior volume na Binance a cada rodada (ideia tirada de uma
+# os N pares USDT de maior volume na Bybit a cada rodada (ideia tirada de uma
 # live do canal: a IA dele varre um universo grande de moedas, não só uma
 # lista fixa, pra pegar oportunidades fora do radar). Se a busca falhar por
 # qualquer motivo, cai no fallback fixo abaixo.
@@ -473,7 +473,7 @@ LIGHT_REVERSAL_PIVOT_LEN = 5
 LIGHT_REVERSAL_MIN_DRAWDOWN = 0.30
 LIGHT_REVERSAL_MAX_DRAWDOWN = BOTTOM_FISHING_MIN_DRAWDOWN  # acima disso, já é bottom fishing
 
-# --- Classificação de "porte" por volume (proxy de market cap) — a Binance
+# --- Classificação de "porte" por volume (proxy de market cap) — a Bybit
 # não fornece market cap, então usamos o rank de volume dentro do próprio
 # watchlist do dia como aproximação de porte, do jeito que o canal comentou
 # preferir moedas "com menos dinheiro enfiado nelas" pra reversões. Não é o
@@ -492,7 +492,7 @@ RELATIVE_WEAKNESS_TOP_N = 5           # quantas moedas mais fracas mostrar no ra
 RELATIVE_WEAKNESS_MIN_DIFF_PP = 3.0   # diferença mínima abaixo do retorno do BTC pra entrar no ranking
 
 # --- Termômetro de fase de ciclo (mania de memecoin) — lista curada porque a
-# Binance não classifica "memecoin" como categoria; pares que não existirem
+# Bybit não classifica "memecoin" como categoria; pares que não existirem
 # mais (ou ainda não existirem) são simplesmente pulados na busca ---
 MEME_COIN_SYMBOLS = [
     "DOGEUSDT", "SHIBUSDT", "PEPEUSDT", "FLOKIUSDT", "BONKUSDT",
@@ -555,18 +555,28 @@ SCALP_DIAG_RSI_BAND = 10           # RSI dentro de 10 pontos do gatilho de scalp
 REVERSAL_DRAWDOWN_DIAG_BAND = 0.05  # até 5 pontos percentuais abaixo do drawdown mínimo
 DIAGNOSTIC_TOP_N = 6                # quantas moedas (já deduplicadas) entram no resumo
 
-# Hosts pra dados públicos da Binance, em ordem de tentativa. O primeiro é o
-# espelho oficial de dados públicos (sem autenticação) — ele evita o bloqueio
-# geográfico (HTTP 451) que o api.binance.com às vezes devolve dependendo de
-# em qual região o runner do GitHub Actions caiu daquela vez. O segundo é o
-# host normal, como fallback caso o espelho fique fora do ar.
-BINANCE_BASES = [
-    "https://data-api.binance.vision",
-    "https://api.binance.com",
+# Hosts pra dados públicos da Bybit (API v5, categoria "spot"), em ordem de
+# tentativa. Trocado de Binance pra Bybit por pedido (o Thiago opera na
+# Bybit, faz mais sentido os dados baterem com a corretora que ele usa de
+# verdade). api.bytick.com é o domínio alternativo que a própria Bybit
+# disponibiliza pra quando api.bybit.com está bloqueado/fora do ar numa
+# região — mesmo padrão de resiliência que já existia pra Binance.
+BYBIT_BASES = [
+    "https://api.bybit.com",
+    "https://api.bytick.com",
 ]
 TELEGRAM_BASE = "https://api.telegram.org"
 
-API_SLEEP = 0.2   # pausa entre chamadas à Binance (respeita rate limit)
+API_SLEEP = 0.2   # pausa entre chamadas à Bybit (respeita rate limit)
+
+# A Bybit não tem intervalo nativo de 3 dias na kline (só minutos/horas até
+# 720, ou D/W/M) — usado só pelo tempo gráfico "3D" da bandeira (ver
+# `_fetch_klines_3d_agregado`). O resto mapeia direto pro código que a API
+# v5 da Bybit espera.
+_BYBIT_INTERVAL_MAP = {
+    "5m": "5", "15m": "15", "1h": "60", "4h": "240",
+    "1d": "D", "1w": "W", "1M": "M",
+}
 
 # --- Notícias de fallback (quando a rodada não acha nenhum setup) ---
 # A Reuters não oferece mais um feed público de graça pra puxar direto sem
@@ -651,24 +661,29 @@ SCENARIO_PIVOT_LEN = 5
 
 
 # ----------------------------------------------------------------------------
-# DADOS DA BINANCE
+# DADOS DA BYBIT
 # ----------------------------------------------------------------------------
 
-def _binance_get(path, timeout=20):
+def _bybit_get(path, timeout=20):
     """
-    GET num endpoint público da Binance, tentando os hosts de BINANCE_BASES
-    em ordem. Existe por causa do erro 451 (bloqueio geográfico) que
-    api.binance.com às vezes devolve dependendo de onde o runner do GitHub
-    Actions está hospedado — o espelho de dados públicos (data-api.binance.
-    vision) tentado primeiro evita isso na maioria dos casos.
+    GET num endpoint público da Bybit (API v5), tentando os hosts de
+    BYBIT_BASES em ordem — mesmo padrão de resiliência que o bot já usava
+    pra Binance, agora com api.bybit.com/api.bytick.com. Levanta o erro do
+    ÚLTIMO host tentado se nenhum funcionar, e também levanta erro se a
+    resposta vier com `retCode` != 0 (formato de erro da Bybit — ela quase
+    sempre devolve HTTP 200 mesmo em erro, com o código de verdade dentro do
+    JSON).
     """
     last_error = None
-    for base in BINANCE_BASES:
+    for base in BYBIT_BASES:
         url = f"{base}{path}"
         req = urllib.request.Request(url, headers={"User-Agent": "vela-monitor-bot/1.0"})
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                data = json.loads(resp.read().decode("utf-8"))
+            if data.get("retCode") not in (0, None):
+                raise RuntimeError(f"Bybit retCode={data.get('retCode')}: {data.get('retMsg')}")
+            return data
         except Exception as e:
             last_error = e
             continue
@@ -676,12 +691,30 @@ def _binance_get(path, timeout=20):
 
 
 def fetch_klines(symbol: str, interval: str, limit: int):
-    """Busca candles públicos da Binance. Não precisa de API key."""
-    raw = _binance_get(f"/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}")
+    """
+    Busca candles públicos da Bybit (categoria "spot"). Não precisa de API
+    key. `interval` usa a mesma notação de sempre no resto do bot ("5m",
+    "15m", "1h", "4h", "1d", "1w", "1M", "3d") — é convertida pro código que
+    a Bybit espera via `_BYBIT_INTERVAL_MAP`. "3d" é caso especial (ver
+    `_fetch_klines_3d_agregado`), porque a Bybit não tem esse intervalo
+    nativo.
+    """
+    if interval == "3d":
+        return _fetch_klines_3d_agregado(symbol, limit)
+
+    bybit_interval = _BYBIT_INTERVAL_MAP.get(interval)
+    if bybit_interval is None:
+        raise ValueError(f"intervalo não suportado pela Bybit: {interval}")
+
+    raw = _bybit_get(f"/v5/market/kline?category=spot&symbol={symbol}&interval={bybit_interval}&limit={limit}")
+    rows = (raw.get("result") or {}).get("list") or []
+    # A Bybit devolve do candle mais NOVO pro mais ANTIGO — o resto do bot
+    # espera ordem cronológica crescente (candles[-1] = candle mais recente).
+    rows = list(reversed(rows))
     candles = []
-    for row in raw:
+    for row in rows:
         candles.append({
-            "open_time": row[0],
+            "open_time": int(row[0]),
             "open": float(row[1]),
             "high": float(row[2]),
             "low": float(row[3]),
@@ -692,18 +725,50 @@ def fetch_klines(symbol: str, interval: str, limit: int):
     return candles
 
 
+def _fetch_klines_3d_agregado(symbol, limit):
+    """
+    A Bybit não tem intervalo nativo de 3 dias (só minutos/horas até 720, ou
+    D/W/M) — o tempo gráfico "3D" é usado pelo classificador de bandeira
+    (`classifica_bandeira`) como leitura extra quando o 4h fica "poluído".
+    Busca candles DIÁRIOS em quantidade suficiente e agrupa de 3 em 3 (mais
+    antigo primeiro, alinhado a partir do candle mais recente) num candle
+    sintético: abertura do primeiro dia do grupo, fechamento do último,
+    máxima/mínima do grupo inteiro, volume somado — o mesmo que um candle de
+    3D "de verdade" mostraria.
+    """
+    diarios = fetch_klines(symbol, "1d", limit * 3 + 3)
+    resto = len(diarios) % 3
+    if resto:
+        diarios = diarios[resto:]  # descarta o excesso do início pra fechar em blocos completos de 3
+    candles_3d = []
+    for i in range(0, len(diarios), 3):
+        grupo = diarios[i:i + 3]
+        if len(grupo) < 3:
+            continue
+        candles_3d.append({
+            "open_time": grupo[0]["open_time"],
+            "open": grupo[0]["open"],
+            "high": max(c["high"] for c in grupo),
+            "low": min(c["low"] for c in grupo),
+            "close": grupo[-1]["close"],
+            "volume": sum(c["volume"] for c in grupo),
+        })
+    return candles_3d[-limit:]
+
+
 def fetch_top_usdt_symbols(limit=TOP_N_SYMBOLS):
     """
-    Busca todos os pares USDT da Binance com seu volume das últimas 24h e
-    devolve os `limit` de maior volume — a varredura "grande", em vez de uma
-    lista fixa. Remove stablecoins contra USDT e tokens alavancados, que não
-    fazem sentido pra análise de padrão técnico.
+    Busca todos os pares USDT da Bybit (spot) com seu volume das últimas
+    24h e devolve os `limit` de maior volume — a varredura "grande", em vez
+    de uma lista fixa. Remove stablecoins contra USDT e tokens alavancados,
+    que não fazem sentido pra análise de padrão técnico.
     """
-    raw = _binance_get("/api/v3/ticker/24hr", timeout=30)
+    raw = _bybit_get("/v5/market/tickers?category=spot", timeout=30)
     time.sleep(API_SLEEP)
+    rows = (raw.get("result") or {}).get("list") or []
 
     candidatos = []
-    for row in raw:
+    for row in rows:
         symbol = row.get("symbol", "")
         if not symbol.endswith("USDT"):
             continue
@@ -713,7 +778,9 @@ def fetch_top_usdt_symbols(limit=TOP_N_SYMBOLS):
         if base.endswith(LEVERAGED_SUFFIXES):
             continue
         try:
-            quote_volume = float(row.get("quoteVolume", 0))
+            # turnover24h = volume das últimas 24h já em USDT (equivalente
+            # ao "quoteVolume" que a Binance devolvia).
+            quote_volume = float(row.get("turnover24h", 0))
         except (TypeError, ValueError):
             continue
         if quote_volume <= 0:
@@ -1412,10 +1479,16 @@ def check_oco_pattern(symbol, candles, timeframe_label="4h", pivot_len=PIVOT_LEN
 MIN_REWARD_RISK_RATIO = 2.0   # lucro no alvo tem que ser pelo menos 2x o risco do stop
 MARKET_TREND_EMA_FAST = 50
 MARKET_TREND_EMA_SLOW = 200
-# Semanal tem histórico de sobra (Binance BTCUSDT desde 2017 = ~470 candles
-# semanais) pra usar o mesmo par EMA50/EMA200 do diário. Mensal não tem
-# histórico suficiente pra EMA200 (só ~100 candles desde 2017), então usa um
-# par mais curto — ainda assim reflete a tendência de mais longo prazo.
+# Semanal usa o mesmo par EMA50/EMA200 do diário. ATENÇÃO (desde a troca pra
+# Bybit): a Bybit só tem spot desde ~2021, bem menos histórico que a Binance
+# (que tinha BTCUSDT desde 2017, ~470 candles semanais) — dá pra passar dos
+# 220 candles semanais que o EMA200 precisa (~20 de folga), mas com margem
+# bem mais curta. Se o cálculo de tendência semanal começar a vir sempre
+# "neutra"/sem dado (`market_trend` caindo no except em `main()`), o motivo
+# mais provável é história insuficiente pro EMA200 — nesse caso vale reduzir
+# MARKET_TREND_WEEKLY_EMA_SLOW. Mensal não tem histórico suficiente pra
+# EMA200 (ainda menos motivo com a Bybit), então usa um par mais curto —
+# ainda assim reflete a tendência de mais longo prazo.
 MARKET_TREND_WEEKLY_EMA_FAST = MARKET_TREND_EMA_FAST
 MARKET_TREND_WEEKLY_EMA_SLOW = MARKET_TREND_EMA_SLOW
 MARKET_TREND_MONTHLY_EMA_FAST = 6
@@ -2528,7 +2601,7 @@ def find_altcoin_do_dia(watchlist, market_trend="neutra"):
         try:
             candles_btc = fetch_klines(btc_pair, INTERVAL, KLINES_LIMIT)
         except Exception:
-            continue  # nem toda moeda tem par direto contra BTC na Binance
+            continue  # nem toda moeda tem par direto contra BTC na Bybit
         if len(candles_btc) < (2 * PIVOT_LEN + 20):
             continue
 
@@ -3531,7 +3604,7 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         candles_1h = fetch_klines(symbol, "1h", 100)
         candles_5m = fetch_klines(symbol, "5m", CONFLUENCE_5M_LIMIT)
     except urllib.error.HTTPError as e:
-        return (f"⚠️ Não consegui buscar dados de {symbol} na Binance (erro {e.code}). "
+        return (f"⚠️ Não consegui buscar dados de {symbol} na Bybit (erro {e.code}). "
                 f"Confira se o par existe (ex.: SOLUSDT, XRPUSDT).")
     except Exception as e:
         return f"⚠️ Erro buscando dados de {symbol}: {e}"
@@ -4846,7 +4919,7 @@ def main():
     # execuções não deve fazer nada: só os ticks de hora cheia (comportamento
     # de sempre), os horários de relatório, ou uma execução manual valem a
     # pena rodar — os ticks "no meio do caminho" saem cedo sem gastar chamada
-    # nenhuma na Binance nem mandar mensagem nenhuma.
+    # nenhuma na Bybit nem mandar mensagem nenhuma.
     if not (is_hourly_tick or is_report_time or is_manual):
         print(f"[{datetime.now(timezone.utc).isoformat()}] Tick de rotina (fora da hora cheia e fora "
               f"de um horário de relatório) — nada a fazer nesse ciclo.")
@@ -4875,7 +4948,7 @@ def main():
 
     if full_scan_ativo:
         print(f"[{datetime.now(timezone.utc).isoformat()}] Buscando os {TOP_N_SYMBOLS} pares "
-              f"USDT de maior volume na Binance...")
+              f"USDT de maior volume na Bybit...")
         try:
             top_symbols = fetch_top_usdt_symbols(TOP_N_SYMBOLS)
             watchlist = [s for s, _ in top_symbols]

@@ -263,7 +263,7 @@ o candidato "sugestão de mover stop pra zero a zero após movimento favorável"
 Contexto: live mais "multi-mercado" — passeia por petróleo, ações americanas
 (Amazon, Tesla, SpaceX, Anthropic pré-IPO), Ibovespa, dólar, ouro e só depois
 cripto (BTC/ETH/XRP/ONDO). Mostra um lado do canal que foge do escopo do bot
-(o bot só cobre cripto via Binance), mas ainda traz conceitos aplicáveis.
+(o bot só cobre cripto via Bybit), mas ainda traz conceitos aplicáveis.
 
 Conceitos novos ou reforçados:
 
@@ -789,3 +789,14 @@ deveria subir de prioridade.
   bandeira como confirmação extra, escolhe uma recomendação por dia com
   dedup via mensagem fixada no Telegram (mesma técnica já usada pra memória
   da última operação, sem precisar de nenhum estado salvo no repositório).
+- 18/09/2026 (mesmo dia, terceira sessão): mudança de infraestrutura, não de
+  conteúdo de live — o Thiago pediu pra trocar a fonte de dados de Binance
+  pra Bybit, porque é onde ele opera de verdade. **✅ IMPLEMENTADO** — toda
+  a busca de candle e o ranking de volume do watchlist agora vêm da API
+  pública v5 da Bybit (`_bybit_get`, `fetch_klines`, `fetch_top_usdt_symbols`),
+  isolados do resto do bot (nenhum sinal precisou mudar). Dois ajustes
+  técnicos por causa da troca: o tempo gráfico de 3D (que a Bybit não tem
+  nativo) passou a ser montado agregando 3 candles diários; e o histórico
+  semanal/mensal ficou mais curto (Bybit tem spot só desde ~2021, contra
+  2017 da Binance), o que deixa o EMA200 semanal com menos folga — ainda
+  deve funcionar, só com menos margem.

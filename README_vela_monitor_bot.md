@@ -1,24 +1,25 @@
 # Vela Monitor — bot de varredura no Telegram
 
-Esse pacote faz a varredura automática das moedas do watchlist na Binance,
-procurando o padrão de pullback (correção até o Fibonacci 0.382, com
-fundos/topos ascendentes/descendentes e checagem de volume) e manda um
-alerta formatado no seu Telegram, no estilo do "VELA MONITOR" que você
-mostrou.
+Esse pacote faz a varredura automática das moedas do watchlist na Bybit
+(dados públicos, sem precisar de API key — trocado de Binance pra Bybit
+porque é onde você realmente opera), procurando o padrão de pullback
+(correção até o Fibonacci 0.382, com fundos/topos ascendentes/descendentes
+e checagem de volume) e manda um alerta formatado no seu Telegram, no
+estilo do "VELA MONITOR" que você mostrou.
 
 **Importante sobre onde isso roda:** tanto o container de nuvem do Claude
-quanto a VM do bridge que conecta ao seu Mac têm acesso bloqueado à Binance
-e ao Telegram por política da organização — então o Claude não consegue
-rodar essa varredura sozinho, nem daqui nem através do seu computador via
-essa ponte. Por isso o script foi feito pra você rodar diretamente no seu
-Mac (fora do sandbox do Claude) ou, de forma mais confiável, em segundo
-plano no GitHub Actions (gratuito, roda mesmo com o Mac desligado). As duas
-opções estão abaixo.
+quanto a VM do bridge que conecta ao seu Mac têm acesso bloqueado a
+corretoras de cripto (Bybit incluída) e ao Telegram por política da
+organização — então o Claude não consegue rodar essa varredura sozinho,
+nem daqui nem através do seu computador via essa ponte. Por isso o script
+foi feito pra você rodar diretamente no seu Mac (fora do sandbox do Claude)
+ou, de forma mais confiável, em segundo plano no GitHub Actions (gratuito,
+roda mesmo com o Mac desligado). As duas opções estão abaixo.
 
 Arquivos deste pacote:
 - `vela_monitor_bot.py` — o script (não usa nenhuma biblioteca externa, só
   Python padrão — não precisa instalar nada).
-- `vela_monitor.yml` — workflow do GitHub Actions pra rodar de 1 em 1 hora.
+- `vela_monitor.yml` — workflow do GitHub Actions pra rodar a cada 5 minutos.
 
 ---
 
@@ -102,6 +103,35 @@ Arquivos deste pacote:
    categorizado/altcoin do dia que caem no meio da hora (13:30, 14:40,
    18:45, 19:30, 20:40) nunca disparam, só os que caem certinho na hora
    cheia (03:00, 06:00, 22:00).
+
+---
+
+## Fonte de dados: Bybit em vez de Binance
+
+O script busca todos os candles e o ranking de volume na **Bybit** (API v5,
+dados públicos, categoria "spot" — não precisa de API key nem de conta na
+Bybit). A troca foi feita porque é a corretora onde você realmente opera,
+então os preços e os sinais batem com o que você vê na tela. Dois detalhes
+técnicos da troca, pra você saber que não é bug se notar:
+
+- **Tempo gráfico de 3 dias (3D)**: a Bybit não tem esse intervalo nativo
+  na API dela (só minutos/horas, ou D/W/M) — o script busca os candles
+  diários e agrupa de 3 em 3 pra montar o candle de 3D sozinho. O resultado
+  é equivalente, só que o alinhamento dos blocos de 3 dias conta a partir
+  de hoje pra trás, não necessariamente nos mesmos dias que a Binance usava.
+- **Histórico semanal/mensal mais curto**: a Bybit só tem spot desde
+  ~2021 (a Binance tinha desde 2017), então o cálculo de tendência de longo
+  prazo (semanal/mensal, `detect_market_trend`) e o cruzamento de EMA no
+  semanal (`check_weekly_ema_cross`) têm menos margem de candles históricos
+  pra trabalhar. Ainda deve ser suficiente (a EMA200 semanal precisa de uns
+  220 candles = ~4,2 anos, e a Bybit já tem mais que isso), mas com uma
+  folga bem mais curta que antes — se esses dois pararem de aparecer com
+  frequência, esse é o motivo mais provável.
+
+Se um dia quiser voltar pra Binance ou trocar de novo pra outra corretora,
+a mudança fica isolada em `_bybit_get`, `fetch_klines` e
+`fetch_top_usdt_symbols` — o resto do bot (todos os sinais, a bandeira, o
+relatório, a memória) não sabe nem precisa saber de onde o candle veio.
 
 ---
 
@@ -678,7 +708,7 @@ pra:
 Isso substitui a ideia de mandar cada sinal solto pra você conseguir ver
 tudo organizado numa mensagem só, sem precisar rolar dezenas de alertas.
 Petróleo, ouro e mercado americano (S&P 500) ainda não entram nessa versão
-— a Binance só tem dados de cripto, então esses três ficariam de fora até
+— a Bybit só tem dados de cripto, então esses três ficariam de fora até
 adicionarmos uma fonte de dados separada.
 
 **Modo silencioso (por pedido)**: nos horários acima que caem fora da hora
@@ -701,7 +731,7 @@ precisar editar a lista de horários manualmente. Como alguns desses
 horários caem "no meio da hora" (13:30, 14:40, 18:45...), o cron do GitHub
 Actions roda a cada 5 minutos (em vez de só de hora em hora) — a grande
 maioria dessas execuções de 5 em 5 minutos sai sem fazer nada (nem chamada
-à Binance, nem mensagem nenhuma), só os ticks de hora cheia, os horários de
+à Bybit, nem mensagem nenhuma), só os ticks de hora cheia, os horários de
 relatório e as execuções manuais é que realmente rodam a análise.
 
 ## Altcoin do dia — analisada contra o par em BTC (`find_altcoin_do_dia`)
