@@ -578,6 +578,22 @@ _BYBIT_INTERVAL_MAP = {
     "1d": "D", "1w": "W", "1M": "M",
 }
 
+# A Bybit organiza os mercados em categorias (spot, linear = contrato
+# perpétuo, inverse, option). A imensa maioria do watchlist (cripto contra
+# USDT) é "spot" — mas alguns ativos pedidos pelo Thiago em 18/09/2026 só
+# existem como contrato PERPÉTUO ("linear"), não em spot: MicroStrategy
+# (MSTRUSDT) e petróleo WTI (CLUSDT). Qualquer símbolo listado aqui usa
+# category=linear em vez de category=spot em TODAS as chamadas de kline
+# pra ele — o formato de resposta da API v5 é o mesmo nas duas categorias,
+# então o resto do `fetch_klines`/`_fetch_klines_3d_agregado` não muda nada.
+# Se um novo símbolo assim precisar entrar (ex.: outra ação/commodity só
+# disponível como perpétuo), é só adicionar o símbolo aqui.
+BYBIT_LINEAR_ONLY_SYMBOLS = {"MSTRUSDT", "CLUSDT"}
+
+
+def _bybit_category_for(symbol):
+    return "linear" if symbol in BYBIT_LINEAR_ONLY_SYMBOLS else "spot"
+
 # --- Notícias de fallback (quando a rodada não acha nenhum setup) ---
 # A Reuters não oferece mais um feed público de graça pra puxar direto sem
 # passar por scraping (o que evitamos de propósito — não é uma forma
@@ -636,15 +652,21 @@ REPORT_BOTTOM_FISHING_N = 2
 ALTCOIN_DIA_MEMORIA_CHAVE = "_altcoin_do_dia"
 
 # --- Status "core" — mandado em TODA rodada horária, mas só pra um punhado
-# fixo de moedas (em vez de mensagem solta pra qualquer moeda do watchlist
+# fixo de ativos (em vez de mensagem solta pra qualquer moeda do watchlist
 # de 50, que virou a maior fonte de poluição no Telegram, além de deixar a
-# rodada lenta). Por pedido, reduzido pra só BTC/ETH por enquanto — pra
-# voltar a incluir XRP e altcoins em destaque, é só colocar de volta em
-# CORE_SYMBOLS e usar CORE_EXTRA_ALTS_N > 0 (nesse caso a rodada volta a
-# rodar mais devagar, porque contava com a varredura completa do watchlist
-# rodando toda hora, e isso agora só acontece nos horários do relatório ou
-# manualmente — ver do_full_scan em main()) ---
-CORE_SYMBOLS = ["BTCUSDT", "ETHUSDT"]
+# rodada lenta). Por pedido, reduzido pra BTC/ETH + MSTRUSDT (MicroStrategy)
+# e CLUSDT (petróleo WTI) — os dois últimos pedidos em 18/09/2026, só
+# existem como contrato PERPÉTUO na Bybit (não em spot), então precisam de
+# BYBIT_LINEAR_ONLY_SYMBOLS abaixo pra serem encontrados. Todo o resto do
+# bot (checks de padrão, memória da última operação, "fique de olho") roda
+# igual pra eles — é a mesma matemática de preço, só que num ativo listado
+# como derivativo em vez de par spot. Pra voltar a incluir XRP e altcoins
+# em destaque, é só colocar de volta em CORE_SYMBOLS e usar
+# CORE_EXTRA_ALTS_N > 0 (nesse caso a rodada volta a rodar mais devagar,
+# porque contava com a varredura completa do watchlist rodando toda hora,
+# e isso agora só acontece nos horários do relatório ou manualmente — ver
+# do_full_scan em main()) ---
+CORE_SYMBOLS = ["BTCUSDT", "ETHUSDT", "MSTRUSDT", "CLUSDT"]
 CORE_EXTRA_ALTS_N = 2
 
 # Restrição temporária, por pedido: enquanto isso estiver True, o bot não
@@ -692,12 +714,14 @@ def _bybit_get(path, timeout=20):
 
 def fetch_klines(symbol: str, interval: str, limit: int):
     """
-    Busca candles públicos da Bybit (categoria "spot"). Não precisa de API
-    key. `interval` usa a mesma notação de sempre no resto do bot ("5m",
-    "15m", "1h", "4h", "1d", "1w", "1M", "3d") — é convertida pro código que
-    a Bybit espera via `_BYBIT_INTERVAL_MAP`. "3d" é caso especial (ver
+    Busca candles públicos da Bybit. Não precisa de API key. `interval` usa
+    a mesma notação de sempre no resto do bot ("5m", "15m", "1h", "4h",
+    "1d", "1w", "1M", "3d") — é convertida pro código que a Bybit espera via
+    `_BYBIT_INTERVAL_MAP`. "3d" é caso especial (ver
     `_fetch_klines_3d_agregado`), porque a Bybit não tem esse intervalo
-    nativo.
+    nativo. A categoria (spot ou linear/perpétuo) é decidida por
+    `_bybit_category_for` — a esmagadora maioria dos símbolos é spot, só os
+    listados em BYBIT_LINEAR_ONLY_SYMBOLS (MSTRUSDT, CLUSDT) usam linear.
     """
     if interval == "3d":
         return _fetch_klines_3d_agregado(symbol, limit)
@@ -706,7 +730,8 @@ def fetch_klines(symbol: str, interval: str, limit: int):
     if bybit_interval is None:
         raise ValueError(f"intervalo não suportado pela Bybit: {interval}")
 
-    raw = _bybit_get(f"/v5/market/kline?category=spot&symbol={symbol}&interval={bybit_interval}&limit={limit}")
+    categoria = _bybit_category_for(symbol)
+    raw = _bybit_get(f"/v5/market/kline?category={categoria}&symbol={symbol}&interval={bybit_interval}&limit={limit}")
     rows = (raw.get("result") or {}).get("list") or []
     # A Bybit devolve do candle mais NOVO pro mais ANTIGO — o resto do bot
     # espera ordem cronológica crescente (candles[-1] = candle mais recente).
@@ -4066,9 +4091,9 @@ def _texto_memoria(dados_por_simbolo):
     palavra por palavra com o parser.
     """
     linhas = [
-        "📌 VELA MONITOR — memória da última operação (BTC/ETH)",
+        f"📌 VELA MONITOR — memória da última operação ({', '.join(_fmt_symbol(s) for s in CORE_SYMBOLS)})",
         "Não apague nem desafixe — o bot usa essa mensagem pra lembrar da "
-        "última operação enviada de cada moeda.",
+        "última operação enviada de cada ativo.",
         "",
     ]
     for symbol in CORE_SYMBOLS:
@@ -4623,11 +4648,13 @@ def _build_btc_eth_lines(sinais_por_moeda, candles_d_extra):
     """
     Bloco compartilhado (usado na mensagem de BTC/ETH de toda rodada E no
     relatório categorizado): sinal de swing ativo se tiver, senão os dois
-    cenários (alta/baixa) com faixa de preço.
+    cenários (alta/baixa) com faixa de preço. Roda sobre CORE_SYMBOLS
+    inteiro (não só BTC/ETH) — inclui qualquer ativo extra adicionado lá
+    (ex.: MSTRUSDT, CLUSDT), mesmo não sendo cripto.
     """
     candles_d_extra = candles_d_extra or {}
     linhas = []
-    for symbol in ("BTCUSDT", "ETHUSDT"):
+    for symbol in CORE_SYMBOLS:
         nome = symbol.replace("USDT", "")
         sinais = sinais_por_moeda.get(symbol) or []
         swing_sinais = [s for s in sinais if s["estilo"] != "SCALP"]
@@ -4782,14 +4809,16 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
         linhas.append(f"Tendência majoritária do mercado (BTC, diário): {market_trend}")
         linhas.append("")
 
-    # 1) Swing principal — BTC e ETH sempre aparecem
+    # 1) Swing principal — CORE_SYMBOLS sempre aparecem (BTC/ETH + qualquer
+    #    extra adicionado, tipo MSTRUSDT/CLUSDT)
     linhas.append("🏆 SWING PRINCIPAL")
     linhas.extend(_build_btc_eth_lines(sinais_por_moeda, candles_d_extra))
     linhas.append("")
 
     if only_core:
+        nomes_core = ", ".join(_fmt_symbol(s) for s in CORE_SYMBOLS)
         linhas.append(
-            "Restrito a BTC/ETH por enquanto — swing secundário, altcoins "
+            f"Restrito a {nomes_core} por enquanto — swing secundário, altcoins "
             "pequenas, scalp e bottom fishing de outras moedas estão pausados "
             "(SOMENTE_CORE_SYMBOLS)."
         )
@@ -4808,7 +4837,7 @@ def build_full_categorized_report(watchlist, tiers, sinais_por_moeda, candles_d_
         print(f"  erro buscando top 10 CMC pro relatório ({e})")
         cmc_top = list(CMC_FALLBACK_SYMBOLS)
     secundario_symbols = list(dict.fromkeys(["XRPUSDT"] + cmc_top))
-    secundario_symbols = [s for s in secundario_symbols if s not in ("BTCUSDT", "ETHUSDT")]
+    secundario_symbols = [s for s in secundario_symbols if s not in CORE_SYMBOLS]
     destaques = []
     for symbol in secundario_symbols:
         sinais = sinais_por_moeda.get(symbol)

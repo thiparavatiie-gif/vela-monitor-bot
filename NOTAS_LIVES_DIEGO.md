@@ -800,3 +800,17 @@ deveria subir de prioridade.
   semanal/mensal ficou mais curto (Bybit tem spot só desde ~2021, contra
   2017 da Binance), o que deixa o EMA200 semanal com menos folga — ainda
   deve funcionar, só com menos margem.
+- 18/09/2026 (mesmo dia, quarta sessão): o Thiago perguntou por que o bot
+  não achava os pares MSTRUSDT e CLUSDT. Pesquisei e descobri o motivo: os
+  dois só existem como **contrato perpétuo** na Bybit (categoria `linear`),
+  não como par spot — o bot só buscava em `spot`. Perguntei se ele queria
+  que eu adicionasse suporte a isso e ele confirmou. **✅ IMPLEMENTADO** —
+  `fetch_klines` agora decide a categoria (spot ou linear) por símbolo via
+  `BYBIT_LINEAR_ONLY_SYMBOLS`, e `MSTRUSDT`/`CLUSDT` (MicroStrategy e
+  petróleo WTI) entraram em `CORE_SYMBOLS`, então passam a ter status de
+  hora em hora, "fique de olho", memória da última operação e entram no
+  relatório categorizado igual BTC/ETH — mesma mecânica de sempre, o preço
+  é que muda de instrumento. Corrigidos de paralelo alguns lugares que
+  tinham "BTC/ETH" fixo no código (`_build_btc_eth_lines`, texto da memória
+  fixada) pra usar `CORE_SYMBOLS` de verdade, senão os dois ativos novos
+  ficariam de fora dessas telas mesmo estando na lista.

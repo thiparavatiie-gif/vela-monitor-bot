@@ -133,6 +133,36 @@ a mudança fica isolada em `_bybit_get`, `fetch_klines` e
 `fetch_top_usdt_symbols` — o resto do bot (todos os sinais, a bandeira, o
 relatório, a memória) não sabe nem precisa saber de onde o candle veio.
 
+## MicroStrategy e petróleo WTI (`MSTRUSDT`, `CLUSDT`) — contratos perpétuos
+
+Por pedido, `CORE_SYMBOLS` (a lista que o bot acompanha em toda rodada, com
+status de hora em hora, "fique de olho" e memória da última operação —
+ver seções abaixo) agora inclui, além de BTC e ETH:
+
+- **MSTRUSDT** — MicroStrategy, ação tokenizada.
+- **CLUSDT** — petróleo WTI (crude oil).
+
+Esses dois **não existem como par spot na Bybit** — só como **contrato
+perpétuo** (categoria `linear` da API, o mesmo mercado dos derivativos com
+alavancagem). Por isso, ao pedir uma análise manual de `MSTRUSDT` antes
+dessa mudança, o bot não achava o par (ele só buscava em `spot`). Agora,
+qualquer símbolo listado na constante `BYBIT_LINEAR_ONLY_SYMBOLS` (perto de
+`CORE_SYMBOLS`, no topo do script) busca os candles na categoria `linear`
+em vez de `spot` — o resto da mecânica (todos os checks de padrão técnico,
+RSI, Fibonacci, bandeira, EMA) funciona exatamente igual, porque opera em
+cima do preço, não importa se o instrumento é spot ou derivativo.
+
+**Vale um cuidado a mais na leitura desses dois**: os sinais do bot foram
+desenhados olhando pra comportamento de cripto (volatilidade, horário de
+pregão 24/7, liquidez). Ações e commodities têm dinâmica própria (horário
+de pregão, gaps de abertura, notícias corporativas/geopolíticas) que o bot
+não modela — trate os sinais de MSTR/petróleo com o mesmo ceticismo técnico
+de sempre, só que com mais atenção ainda ao contexto fora do gráfico.
+
+Se quiser adicionar outro ativo desse tipo (outra ação ou commodity só
+disponível como perpétuo na Bybit), é só colocar o símbolo em
+`BYBIT_LINEAR_ONLY_SYMBOLS` e em `CORE_SYMBOLS`.
+
 ---
 
 ## O que o script considera "setup"
@@ -655,12 +685,13 @@ Pra voltar a incluir XRP e 2 altcoins em destaque (como era antes), edite
 varredura completa do watchlist volta a rodar toda hora (mais lento de
 novo), porque é dela que vem a escolha das melhores altcoins.
 
-## Restrito a só BTC/ETH fora dos horários de relatório (`SOMENTE_CORE_SYMBOLS`)
+## Restrito a só CORE_SYMBOLS fora dos horários de relatório (`SOMENTE_CORE_SYMBOLS`)
 
 Por pedido, tem uma trava temporária ligada por padrão (`SOMENTE_CORE_SYMBOLS
 = True`, perto de `CORE_SYMBOLS` no topo do script) que faz o bot não
-analisar — nem mandar qualquer mensagem de — nenhuma moeda fora de
-`CORE_SYMBOLS` **nos ticks de hora em hora**:
+analisar — nem mandar qualquer mensagem de — nenhum ativo fora de
+`CORE_SYMBOLS` (hoje: BTC, ETH, MSTR e petróleo WTI — ver seção própria
+abaixo) **nos ticks de hora em hora**:
 
 - Fora dos horários de relatório, a varredura completa do watchlist
   (scalp/altcoins pequenas/bottom fishing/dominância BTC-altseason/
