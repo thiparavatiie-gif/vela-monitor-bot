@@ -78,13 +78,14 @@
 #      primeiro rompimento do pescoço, com alvo pela distância clássica
 #      cabeça↔pescoço projetada, e stop além do ombro mais recente.
 #
-#   3f) CRUZAMENTO DE EMA50/EMA200 NO SEMANAL (contexto,
-#      `check_weekly_ema_cross`) — mesmo par de EMAs que já define a
-#      tendência majoritária do mercado, mas aqui disparando um aviso só na
-#      vela em que o cruzamento (golden/death cross) acontece de verdade —
-#      evento raro (uma live citou que o cruzamento em andamento era o
-#      primeiro desde 2023), tratado como confirmação de alta convicção de
-#      mudança/continuação de tendência de mais longo prazo. Sinal de
+#   3f) CRUZAMENTO DE EMA12/EMA26 NO SEMANAL (contexto,
+#      `check_weekly_ema_cross`, par próprio via `WEEKLY_EMA_CROSS_FAST/SLOW`
+#      — diferente do EMA50/EMA200 que define a tendência majoritária do
+#      mercado) — dispara um aviso só na vela em que o cruzamento acontece de
+#      verdade — evento raro (uma live de 19/09/2026 descreveu esse
+#      cruzamento específico, EMA12/26, como o gatilho que precedeu a virada
+#      pro bull market em 2023), tratado como confirmação de alta convicção
+#      de mudança/continuação de tendência de mais longo prazo. Sinal de
 #      CONTEXTO (sem entrada/stop/alvo — não tem nível técnico natural pra
 #      isso), mostrado junto com os outros blocos de leitura técnica.
 #
@@ -1519,6 +1520,20 @@ MARKET_TREND_WEEKLY_EMA_SLOW = MARKET_TREND_EMA_SLOW
 MARKET_TREND_MONTHLY_EMA_FAST = 6
 MARKET_TREND_MONTHLY_EMA_SLOW = 18
 
+# Par de EMAs usado só pelo sinal de CRUZAMENTO no semanal/mensal
+# (`check_weekly_ema_cross`) — separado de propósito do par EMA50/EMA200
+# acima, que é o que `detect_market_trend` usa pra tendência majoritária (e
+# esse continua 50/200, não mexeu). Uma live (19/09/2026, BTC por volta de
+# 82 mil) descreveu especificamente um "cruzamento das médias 12 e 26" no
+# semanal como o gatilho técnico que precedeu a virada pro bull market atual
+# em 2023 — ou seja, o evento que o Diego trata como sinal de alta convicção
+# de longo prazo é o cruzamento de EMA12/26, não EMA50/200. Antes dessa
+# correção o sinal já implementado reaproveitava por engano o par
+# EMA50/EMA200 (herdado de MARKET_TREND_WEEKLY_EMA_FAST/SLOW), o que fazia
+# ele disparar num evento bem mais raro e diferente do que a live descreve.
+WEEKLY_EMA_CROSS_FAST = 12
+WEEKLY_EMA_CROSS_SLOW = 26
+
 
 def _reward_risk_ok(entry, alvo, stop, min_ratio=MIN_REWARD_RISK_RATIO):
     """(ok: bool, ratio: float|None) — ratio é lucro potencial / risco."""
@@ -1588,20 +1603,21 @@ def detect_market_trend(candles_d, candles_w=None, candles_m=None):
     return "neutra"
 
 
-def check_weekly_ema_cross(symbol, candles_w, ema_fast_period=MARKET_TREND_WEEKLY_EMA_FAST,
-                            ema_slow_period=MARKET_TREND_WEEKLY_EMA_SLOW):
+def check_weekly_ema_cross(symbol, candles_w, ema_fast_period=WEEKLY_EMA_CROSS_FAST,
+                            ema_slow_period=WEEKLY_EMA_CROSS_SLOW):
     """
-    Cruzamento de EMA50/EMA200 no semanal (mesmo par que `detect_market_trend`
-    já usa pra tendência majoritária) — evento raro: uma live citou que o
-    cruzamento em andamento era o primeiro desde 2023 (que foi exatamente a
-    virada pro bull market atual), tratando isso como confirmação de alta
-    convicção pra montar posição de mais longo prazo. Dispara só na vela em
-    que o cruzamento acontece de verdade (mesma lógica de "primeiro toque"
-    usada nos outros sinais) — não fica repetindo enquanto a relação entre
-    as médias continua igual. É um sinal de CONTEXTO (não gera COMPRAR/
-    VENDER isolado com entrada/stop/alvo — não tem um nível técnico natural
-    pra isso), mostrado junto com os outros blocos de leitura no status
-    horário e na análise detalhada.
+    Cruzamento de EMA12/EMA26 no semanal (par próprio desse sinal —
+    `WEEKLY_EMA_CROSS_FAST/SLOW` — diferente do EMA50/EMA200 que
+    `detect_market_trend` usa pra tendência majoritária) — evento raro: uma
+    live (19/09/2026) descreveu esse cruzamento específico como o gatilho
+    que precedeu a virada pro bull market em 2023, tratando isso como
+    confirmação de alta convicção pra montar posição de mais longo prazo.
+    Dispara só na vela em que o cruzamento acontece de verdade (mesma
+    lógica de "primeiro toque" usada nos outros sinais) — não fica
+    repetindo enquanto a relação entre as médias continua igual. É um
+    sinal de CONTEXTO (não gera COMPRAR/VENDER isolado com entrada/stop/
+    alvo — não tem um nível técnico natural pra isso), mostrado junto com
+    os outros blocos de leitura no status horário e na análise detalhada.
     """
     if len(candles_w) < ema_slow_period + 5:
         return None
@@ -1619,10 +1635,16 @@ def check_weekly_ema_cross(symbol, candles_w, ema_fast_period=MARKET_TREND_WEEKL
         return None
 
     direcao = "alta" if cruzou_para_cima else "baixa"
-    nome_cruzamento = "golden cross" if cruzou_para_cima else "death cross"
+    # "golden cross"/"death cross" é terminologia específica do par EMA50/200
+    # (o que `detect_market_trend` usa) — com outro par de EMAs (como o
+    # EMA12/26 padrão desse sinal) o nome genérico evita confusão.
+    if ema_fast_period == MARKET_TREND_EMA_FAST and ema_slow_period == MARKET_TREND_EMA_SLOW:
+        rotulo_cruzamento = f"{'golden cross' if cruzou_para_cima else 'death cross'}, viés de {direcao}"
+    else:
+        rotulo_cruzamento = f"viés de {direcao}"
     texto = (
         f"🔀 Cruzamento de EMA{ema_fast_period}/EMA{ema_slow_period} no semanal em {symbol} "
-        f"({nome_cruzamento}, viés de {direcao}) — cruzamento de médias de longo prazo é um "
+        f"({rotulo_cruzamento}) — cruzamento de médias de longo prazo é um "
         f"evento raro; quando acontece, costuma marcar mudança ou confirmação de tendência de "
         f"mais longo prazo, com peso maior que a maioria dos outros sinais do bot."
     )

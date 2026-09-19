@@ -527,18 +527,26 @@ algoritmo capta.
 ## Cruzamento de EMA no semanal (`check_weekly_ema_cross`)
 
 Sinal de **contexto** (sem entrada/stop/alvo — não tem um nível técnico
-natural pra isso) que avisa quando a EMA50 e a EMA200 do **semanal** —
-mesmo par que já define a tendência majoritária do mercado — acabaram de
-se cruzar. É um evento raro: uma live comentou que o cruzamento em
-andamento era o primeiro desde 2023 (que foi exatamente a virada pro bull
-market atual), tratando isso como confirmação de alta convicção pra
-montar posição de mais longo prazo.
+natural pra isso) que avisa quando a EMA12 e a EMA26 do **semanal** —
+par próprio desse sinal (`WEEKLY_EMA_CROSS_FAST`/`WEEKLY_EMA_CROSS_SLOW`),
+**diferente** do EMA50/EMA200 que define a tendência majoritária do
+mercado em `detect_market_trend` — acabaram de se cruzar. É um evento
+raro: uma live (19/09/2026, BTC por volta de 82 mil) descreveu esse
+cruzamento específico (EMA12/26 no semanal) como o gatilho técnico que
+precedeu a virada pro bull market em 2023, tratando isso como confirmação
+de alta convicção pra montar posição de mais longo prazo.
+
+> Correção (19/09/2026): esse sinal já existia, mas usava por engano o
+> par EMA50/EMA200 (herdado da constante de tendência majoritária). A
+> live deixou claro que o cruzamento que o Diego acompanha de verdade é o
+> de EMA12/26 — mais rápido, então dispara com mais frequência que o
+> comportamento anterior.
 
 Dispara só na vela em que o cruzamento acontece de verdade — mesma lógica
 de "primeiro toque" usada nos sinais de RSI — não fica repetindo enquanto
-a relação entre as médias continua a mesma. Golden cross (EMA50 cruza
-acima da EMA200) = viés de alta; death cross (cruza abaixo) = viés de
-baixa.
+a relação entre as médias continua a mesma. Cruzamento pra cima = viés de
+alta; pra baixo = viés de baixa (o rótulo "golden cross"/"death cross" só
+aparece se o par de EMAs configurado for especificamente o 50/200).
 
 ## Ranking de força relativa contra o BTC (`rank_relative_weakness_vs_btc`)
 

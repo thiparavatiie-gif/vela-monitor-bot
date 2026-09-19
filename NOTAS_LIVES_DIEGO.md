@@ -580,6 +580,73 @@ deveria subir de prioridade.
 
 ---
 
+### 9) Live "ao vivo" de 19/09/2026 (transcrição colada direto pelo Thiago no
+chat, sem título/URL, ~7min — BTC se aproximando de US$ 82.000)
+
+Contexto: vídeo curto, focado num único momento — BTC testando por baixo
+uma zona de resistência formada pela fusão de um fundo anterior com um topo
+anterior (~82.800–83.000), com leitura de força extrema (RSI esticado sem
+corrigir) e uma tese explícita de que esse comportamento não é típico de
+bear market. Ele também compara o momento atual ao cruzamento de médias no
+semanal que antecedeu a virada pro bull market de 2023.
+
+Conceitos/técnicas que aparecem (e o que já existe ou não no bot):
+
+- **RSI esticado sem corrigir, mesmo perto de resistência forte, como sinal
+  de força extrema (bear market não se comporta assim)** — reforça pela
+  5ª vez (contando as lives #7 e #8) o candidato "RSI de 4h esticado por
+  muitos dias = leitor de regime bull/bear" (item 9 da lista abaixo).
+  **Confirma de novo**, sem mudança de código — mas com esse volume de
+  confirmações (agora 3 lives seguidas citando o mesmo padrão), esse
+  candidato já deveria ser tratado como prioridade alta pra virar sinal
+  próprio, não só um "termômetro de contexto" passivo.
+
+- **Zona de resistência formada pela fusão de um fundo anterior com um topo
+  anterior, com alvo técnico numa faixa (95–97 mil) se romper** — mesma
+  lógica de zona de pivôs relevante que o bot já usa (`find_pivots`),
+  reforçando de novo (como na live #8, zona "banho gelado") que vale
+  destacar esse tipo de zona combinada com mais clareza nos textos gerados.
+  Sem sinal novo — já coberto conceitualmente.
+
+- **Cruzamento de médias no semanal (EMA12/26, comparado explicitamente ao
+  cruzamento de março/2023 que "destravou" o bull market atual) e o mensal
+  andando acima das mesmas médias** — essa foi a informação mais importante
+  técnica dessa live: ele nomeia o par de médias (12 e 26) do cruzamento que
+  trata como confirmação de bull market. **🔧 CORREÇÃO IMPORTANTE**: o
+  sinal `check_weekly_ema_cross`, implementado ontem (item 12) a partir da
+  live #8, tinha reaproveitado por engano o par EMA50/EMA200 (o mesmo que
+  `detect_market_trend` usa pra tendência majoritária) — mas o cruzamento
+  que o Diego de fato acompanha é o de EMA12/26. **✅ CORRIGIDO nesta
+  sessão** — `check_weekly_ema_cross` passou a usar constantes próprias
+  (`WEEKLY_EMA_CROSS_FAST=12`, `WEEKLY_EMA_CROSS_SLOW=26`), independentes do
+  par 50/200 que `detect_market_trend` continua usando. Efeito prático: como
+  EMA12/26 cruza com bem mais frequência que EMA50/200, esse aviso vai
+  disparar mais vezes do que antes — deixou de ser um evento "uma vez a cada
+  vários anos" pra ser um evento raro, mas não tão raro assim.
+
+- **Posição pessoal do apresentador (alocação/alavancagem, stop movido pro
+  zero a zero) e exemplo de moeda específica com alta forte em menos de 48h
+  como evidência contra a tese de bear market** — contexto/validação
+  pessoal dele, sem técnica nova: a lógica de mover stop pro zero a zero já
+  existe no bot (memória da última operação, item 2 da lista abaixo), e o
+  exemplo de força individual reforça (sem gerar sinal novo) a ideia geral
+  de força extrema de mercado já capturada pelo item 9.
+
+- **Filosofia de realização parcial de lucro variando conforme o nível de
+  alavancagem usado** — conceito de gestão de risco/psicológico, sem
+  tradução direta em sinal técnico (o bot não gerencia posição alavancada
+  do usuário, só analisa preço). Sem ação de código.
+
+**Resumo de candidatos a melhoria dessa live**: nenhum sinal novo — o ganho
+real foi a **correção** do sinal de cruzamento de EMA semanal (item 12,
+agora EMA12/26 em vez de EMA50/200), motivada por essa live citar o par de
+médias de forma explícita e comparável a um evento histórico real (o
+cruzamento de 2023). "RSI 4h esticado por dias = regime" (item 9) segue
+acumulando confirmações e continua como candidato de prioridade alta pra
+virar sinal com peso próprio.
+
+---
+
 ## Padrões que já apareceram em mais de uma live (mais forte candidato a virar código)
 
 1. **RSI em sobrevenda/sobrecompra no 4h é o setup de maior convicção pra ele**
@@ -668,10 +735,15 @@ deveria subir de prioridade.
     (18/09/2026): primeiro cruzamento de médias no semanal desde 2023,
     tratado como evento raro de alta convicção pra montar posição de meses.
     **✅ IMPLEMENTADO** (`check_weekly_ema_cross`, 18/09/2026) — mesmo padrão
-    de "primeiro toque" já usado em outros sinais, aplicado ao cruzamento
-    EMA50/EMA200 no semanal (mesmo par de médias que já define
-    `detect_market_trend`); sinal de contexto raro, sem repetir na vela
-    seguinte ao cruzamento.
+    de "primeiro toque" já usado em outros sinais; sinal de contexto raro,
+    sem repetir na vela seguinte ao cruzamento. **🔧 CORRIGIDO em 19/09/2026**
+    (live #9): a implementação original reaproveitou por engano o par
+    EMA50/EMA200 (mesmo par de `detect_market_trend`), mas a live #9 deixou
+    explícito que o cruzamento que o Diego de fato acompanha nesse contexto
+    é o de **EMA12/26** no semanal — par próprio e independente, via novas
+    constantes `WEEKLY_EMA_CROSS_FAST`/`WEEKLY_EMA_CROSS_SLOW` (12/26), sem
+    mexer no EMA50/200 que `detect_market_trend` continua usando pra
+    tendência majoritária.
 13. **Ranking de força relativa individual contra o BTC (screener de
     short)** — live #8 (18/09/2026): pra achar candidatos de short, ele não
     olha o ativo isoladamente, olha o par cotado em BTC pra achar quem tá
@@ -697,14 +769,14 @@ deveria subir de prioridade.
 
 ## Progresso
 
-- Processadas: 7 de ~30+ (últimos ~2 meses) — canal tem mais de 100 lives no
+- Processadas: 9 de ~30+ (últimos ~2 meses) — canal tem mais de 100 lives no
   total, indo bem mais pra trás no tempo. 11/09, 10/09, 01/09, 20/08, 14/08,
-  16/09 e 17/09/2026 (essas duas últimas coladas direto pelo Thiago no chat,
-  sem passar por busca/navegação no canal — o Thiago passou a mandar a
+  16/09, 17/09, 18/09 e 19/09/2026 (a partir da #6, todas coladas direto pelo
+  Thiago no chat, sem passar por busca/navegação no canal — passou a mandar a
   transcrição das lives diárias diretamente) — cobrindo correção/
-  lateralização, disparada forte de alta, uma live mais multi-mercado, e
-  duas lives "ao vivo" reagindo a notícias do dia (Clarity Act, juros dos
-  EUA).
+  lateralização, disparada forte de alta, uma live mais multi-mercado, três
+  lives "ao vivo" reagindo a notícias/preço do dia (Clarity Act, juros dos
+  EUA, resistência dos 82 mil).
 - Candidata seguinte pra buscar no canal, se o Thiago não mandar a próxima
   direto (ainda não processada): "Trade Ao Vivo! Análise do Bitcoin,
   Altcoins e Mercado Internacional!" (ncl4n0dfK1Y, ~2 meses atrás).
@@ -814,3 +886,23 @@ deveria subir de prioridade.
   tinham "BTC/ETH" fixo no código (`_build_btc_eth_lines`, texto da memória
   fixada) pra usar `CORE_SYMBOLS` de verdade, senão os dois ativos novos
   ficariam de fora dessas telas mesmo estando na lista.
+- 19/09/2026: processada a live #9 (transcrição curta, ~7min, colada direto
+  pelo Thiago, sem título/URL) sobre o BTC testando a resistência dos ~82
+  mil. Reforçou pela 5ª vez o candidato "RSI 4h esticado por dias = regime"
+  (item 9) e, mais importante, expôs uma **correção necessária** num sinal
+  já implementado: o cruzamento de EMA no semanal (item 12,
+  `check_weekly_ema_cross`, implementado ontem a partir da live #8) tinha
+  usado por engano o par EMA50/EMA200, mas a live #9 citou explicitamente
+  que o cruzamento que o Diego acompanha nesse contexto é o de **EMA12/26**
+  (comparando ao cruzamento de março/2023 que precedeu o bull market atual).
+  **✅ CORRIGIDO no mesmo dia** — novas constantes `WEEKLY_EMA_CROSS_FAST`
+  (12) e `WEEKLY_EMA_CROSS_SLOW` (26), independentes do par 50/200 que
+  `detect_market_trend` continua usando pra tendência majoritária; o rótulo
+  "golden cross"/"death cross" no texto do sinal ficou restrito a quando o
+  par configurado é de fato 50/200 (evita nomear errado um cruzamento de
+  EMA12/26 com um termo que tecnicamente é do par 50/200). Efeito colateral
+  esperado: como EMA12/26 cruza bem mais vezes que EMA50/200, esse aviso vai
+  aparecer com mais frequência do que antes — o Thiago deve notar isso nas
+  próximas semanas. Suíte de 21 testes automatizados re-rodada sem
+  regressões (incluindo o teste específico desse sinal, que já era
+  genérico o bastante pra não depender do par de EMA exato).
