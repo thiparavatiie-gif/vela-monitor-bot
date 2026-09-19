@@ -764,6 +764,47 @@ virar sinal com peso próprio.
     par contra BTC, roda pullback/LTA/OCOi direto nesse par, usa a bandeira
     (item 8) como confirmação extra, e escolhe uma recomendação de estudo
     por dia com o melhor risco/retorno.
+15. **OCOi/OCO "em formação" (ombro 1 + cabeça já prontos, ombro 2 ainda se
+    formando, pescoço ainda não rompido)** — análise de uma operação real do
+    robô do Diego em MANTA (19/09/2026, gráfico de 4h com uma projeção
+    desenhada à mão do ombro 2 e do pescoço esperado). **→ o bot não tem
+    isso hoje**: `check_oco_pattern` só dispara quando o pescoço JÁ foi
+    rompido nesta vela — um padrão em formação (só ombro 1 + cabeça
+    prontos) não gera nenhum aviso, mesmo sendo exatamente o momento em que
+    vale ficar de olho. Candidato: uma versão "quase lá" desse sinal
+    (mesmo espírito do `diagnose_confluence`, que já existe pra confluência
+    multi-indicador), reaproveitando `_find_oco_estrutura`, mostrando o
+    nível provável do pescoço e o range onde o ombro 2 precisaria se formar
+    pra validar o padrão.
+16. **Screener de "moedas atrasadas" (candidatas a compra por rotação/
+    catch-up)** — mesma live/análise de MANTA: o próprio texto do robô do
+    Diego chama a moeda de "atrasada em relação a várias outras que já
+    tiveram movimentos mais fortes", tratando isso como parte da tese de
+    compra (rotação de capital ainda por vir). **→ o bot não tem isso
+    hoje**: o item 13 (`rank_relative_weakness_vs_btc`) já rankeia moedas
+    mais fracas que o BTC, mas só como screener de VENDA (short) — não
+    existe o espelho pro lado comprado (moedas que subiram menos que a
+    média do grupo de altcoins durante uma fase de alta/altseason,
+    candidatas a "ainda tem espaço pra correr"). Reaproveitaria os mesmos
+    retornos que os sinais 5/13 já calculam, só invertendo o critério de
+    ranking e condicionando ao contexto de tendência de alta/altseason
+    (`detect_market_trend`/`check_dominance_altseason`), pra não sugerir
+    "atrasada" num mercado de baixa geral.
+
+**Observação (candidato futuro, não implementado)**: a mesma análise de
+MANTA também reforça, sem exigir código novo, dois comportamentos já
+implementados — o filtro de risco/retorno (o próprio robô do Diego evita
+perseguir o preço atual por causa de R:R ruim, mesma filosofia do
+`MIN_REWARD_RISK_RATIO`) e o stop com margem além de nível redondo
+(`avoid_round_number_stop`, "evitar uma simples varrida do suporte"). O
+gráfico diário mostrado pelo Thiago também confirma visualmente a correção
+de EMA12/26 feita hoje (item 12): as próprias EMAs 12 e 26 do TradingView
+aparecem quase coladas (0,05944 vs 0,05939) prestes a cruzar, e a EMA200
+diária (0,07375) bate exatamente com a zona de alvo intermediário
+("0,073–0,075 — região da EMA 200 diária") que o robô do Diego citou —
+ou seja, ele usa EMA200 diária como referência explícita de alvo, algo que
+o bot hoje não faz de forma automática (só usa EMAs como filtro de
+tendência/contexto, não como nível de alvo projetado).
 
 ---
 
@@ -906,3 +947,22 @@ virar sinal com peso próprio.
   próximas semanas. Suíte de 21 testes automatizados re-rodada sem
   regressões (incluindo o teste específico desse sinal, que já era
   genérico o bastante pra não depender do par de EMA exato).
+- 19/09/2026 (mesmo dia, sessão seguinte): o Thiago mandou uma operação real
+  do robô/bot do próprio Diego em MANTA (texto de análise + 2 gráficos, 1D
+  e 4h) pra eu estudar e ver o que dava pra acrescentar ao bot. Análise:
+  moeda "atrasada" numa grande zona de acumulação (0,050–0,065), R:R ruim
+  no preço atual, plano de 3 entradas escalonadas em correções mais
+  profundas (cada uma condicionada a sobrevenda no 5/15min), stop
+  estrutural com folga além de nível redondo, e 3 alvos em sequência (topo
+  da acumulação, depois EMA200 diária, depois extensão da lateralização).
+  O gráfico de 1D confirmou visualmente a zona de acumulação e a EMA200
+  diária batendo com o alvo intermediário citado; o gráfico de 4h mostrou
+  uma projeção desenhada à mão de um OCOi ainda em formação (ombro 1 +
+  cabeça prontos, ombro 2/pescoço ainda por vir). Nenhum código novo
+  implementado ainda — a análise virou os candidatos 15 (OCOi/OCO "em
+  formação", diagnóstico tipo `diagnose_confluence`) e 16 (screener de
+  moedas atrasadas/rotação pro lado comprado, espelho do item 13) acima,
+  além de validar de novo (sem mudança) o filtro de risco/retorno, o stop
+  com folga de nível redondo, e expor que o bot não usa EMA200 diária como
+  nível de alvo projetado (só como filtro de tendência/contexto) — ver
+  observação acima. Aguardando o Thiago escolher quais candidatos priorizar.
