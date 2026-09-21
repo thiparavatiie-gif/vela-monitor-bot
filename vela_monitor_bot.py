@@ -409,13 +409,35 @@ SCALP_1H_RSI_OVERSOLD = 31     # o Diego comenta um alarme de RSI ~31 no 1h
 SCALP_1H_RSI_OVERBOUGHT = 69
 SCALP_4H_RSI_OVERSOLD = SCALP_RSI_OVERSOLD    # mesmo limiar clássico 30/70,
 SCALP_4H_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT  # mas no 4h isso é bem mais raro
+# Limiares dos 3 degraus extra da escada de fundo ascendente (pedido do
+# Thiago em 21/09/2026, ver RETEST_15M_LOOKBACK etc. abaixo) — mesmo limiar
+# clássico 30/70, sem nenhum ajuste específico relatado ainda pra esses
+# tempos gráficos (diferente do 1h, que tem o alarme ~31 citado acima).
+SCALP_15M_RSI_OVERSOLD = SCALP_RSI_OVERSOLD
+SCALP_15M_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT
+SCALP_30M_RSI_OVERSOLD = SCALP_RSI_OVERSOLD
+SCALP_30M_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT
+SCALP_2H_RSI_OVERSOLD = SCALP_RSI_OVERSOLD
+SCALP_2H_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT
 
-# --- Reteste do fundo/topo depois do 1º toque de RSI no 4h (SIGNAL 3b,
-# "escada de fundo ascendente" — depois do 1º toque em sobrevenda/sobrecompra
-# no 4h, o preço costuma dar um repique e depois voltar pra retestar aquele
-# fundo/topo; se segurar ali, pode ser a base de um fundo/topo ascendente/
-# descendente no semanal, com o próprio nível do toque original como stop) ---
+# --- Reteste do fundo/topo depois do 1º toque de RSI (SIGNAL 3b, "escada de
+# fundo ascendente" — depois do 1º toque em sobrevenda/sobrecompra num tempo
+# gráfico menor, o preço costuma dar um repique e depois voltar pra retestar
+# aquele fundo/topo; se segurar ali, pode ser a base de um fundo/topo
+# ascendente/descendente num tempo gráfico maior, com o próprio nível do
+# toque original como stop). O primeiro degrau implementado (15/09/2026) foi
+# 4h↔semanal (`check_retest_4h`); em 21/09/2026, a pedido do Thiago (um
+# comentário do grupo do Diego sobre correção no 4h com entrada via
+# sobrevenda no 15m, mais instrução direta dele pros degraus 30m↔12h e
+# 2h↔2D), a lógica virou genérica (`_check_retest_ladder`) e ganhou mais 3
+# degraus: 15m↔4h, 30m↔12h e 2h↔2D. Os parâmetros de repique/zona/stop
+# ficam iguais em todos os degraus (mesma lógica, só troca o par de tempos
+# gráficos); só o lookback muda, pra cobrir uma janela de tempo real
+# parecida em cada tempo gráfico menor. ---
 RETEST_4H_LOOKBACK = 60          # candles de 4h pra procurar o toque mais recente (~10 dias)
+RETEST_15M_LOOKBACK = 288        # candles de 15m (~3 dias) — janela bem mais curta, é sobre a correção do momento
+RETEST_30M_LOOKBACK = 288        # candles de 30m (~6 dias)
+RETEST_2H_LOOKBACK = 180         # candles de 2h (~15 dias)
 RETEST_4H_MIN_BOUNCE_PCT = 0.03  # precisa ter se afastado pelo menos 3% do nível antes de voltar
 RETEST_4H_ZONE_TOLERANCE = 0.02  # até 2% de distância do nível original já conta como reteste
 RETEST_4H_STOP_BUFFER = 0.005    # stop um pouco além do fundo/topo original, não exatamente em cima
@@ -459,6 +481,7 @@ OCO_SHOULDER_SYMMETRY_TOLERANCE = 0.15  # até 15% de diferença de profundidade
 OCO_MIN_HEAD_DEPTH_PCT = 0.02           # cabeça precisa ser pelo menos 2% mais funda/alta que os ombros
 OCO_NECKLINE_BREAK_BUFFER = 0.003       # margem além do pescoço pra contar como rompimento de verdade
 OCO_STOP_BUFFER = 0.005                 # margem do stop além do ombro 2 (o mais recente)
+OCO_DIAG_MAX_NECKLINE_DIST_PCT = 0.08    # diagnóstico "em formação" só quando já está a até 8% do pescoço
 
 # --- Bottom fishing (posição) — drawdown profundo desde a máxima histórica ---
 BOTTOM_FISHING_MIN_DRAWDOWN = 0.55   # pelo menos 55% abaixo da máxima histórica
@@ -570,13 +593,16 @@ TELEGRAM_BASE = "https://api.telegram.org"
 
 API_SLEEP = 0.2   # pausa entre chamadas à Bybit (respeita rate limit)
 
-# A Bybit não tem intervalo nativo de 3 dias na kline (só minutos/horas até
-# 720, ou D/W/M) — usado só pelo tempo gráfico "3D" da bandeira (ver
-# `_fetch_klines_3d_agregado`). O resto mapeia direto pro código que a API
-# v5 da Bybit espera.
+# A Bybit não tem intervalo nativo de 2 ou 3 dias na kline (só minutos/horas
+# até 720, ou D/W/M) — usados pelos degraus extra da "escada de fundo
+# ascendente" (ver `_fetch_klines_dias_agregados`, 21/09/2026: pedido do
+# Thiago pra estender a escada além do degrau 4h↔semanal já existente,
+# olhando também 15m/30m/2h como gatilho de sobrevenda e 4h/12h/2D como
+# tempo gráfico onde a base se forma). "30m", "2h" e "12h" mapeiam direto
+# pro código que a API v5 da Bybit espera; "2d" e "3d" são caso especial.
 _BYBIT_INTERVAL_MAP = {
-    "5m": "5", "15m": "15", "1h": "60", "4h": "240",
-    "1d": "D", "1w": "W", "1M": "M",
+    "5m": "5", "15m": "15", "30m": "30", "1h": "60", "2h": "120",
+    "4h": "240", "12h": "720", "1d": "D", "1w": "W", "1M": "M",
 }
 
 # A Bybit organiza os mercados em categorias (spot, linear = contrato
@@ -586,7 +612,7 @@ _BYBIT_INTERVAL_MAP = {
 # (MSTRUSDT) e petróleo WTI (CLUSDT). Qualquer símbolo listado aqui usa
 # category=linear em vez de category=spot em TODAS as chamadas de kline
 # pra ele — o formato de resposta da API v5 é o mesmo nas duas categorias,
-# então o resto do `fetch_klines`/`_fetch_klines_3d_agregado` não muda nada.
+# então o resto do `fetch_klines`/`_fetch_klines_dias_agregados` não muda nada.
 # Se um novo símbolo assim precisar entrar (ex.: outra ação/commodity só
 # disponível como perpétuo), é só adicionar o símbolo aqui.
 BYBIT_LINEAR_ONLY_SYMBOLS = {"MSTRUSDT", "CLUSDT"}
@@ -609,6 +635,23 @@ NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "").strip()
 NEWS_API_BASE = "https://newsapi.org/v2"
 NEWS_MAX_HEADLINES = 4
 TRANSLATE_BASE = "https://api.mymemory.translated.net/get"
+
+# --- Contexto de guerra/risco geopolítico (pedido do Thiago, 21/09/2026,
+# durante a guerra EUA/Israel-Irã e os ataques dos Houthis à Arábia Saudita
+# em andamento): "sempre que o BTC cair e o petróleo subir, pode buscar
+# alguma notícia da guerra". BTC caindo com o petróleo (CLUSDT) subindo ao
+# mesmo tempo é o padrão clássico de risco geopolítico (fuga de ativos de
+# risco + petróleo reagindo à tensão no Oriente Médio/oferta) — quando os
+# dois batem ao mesmo tempo, busca notícia de contexto pra explicar o
+# "porquê" do movimento, em vez de só mostrar o preço caindo sem motivo.
+# Não é sinal de trade nem critério de entrada/saída de nenhum sinal — é só
+# contexto anexado ao status core (que já manda toda hora cheia).
+BTC_OIL_DIVERGENCE_LOOKBACK_DAYS = 1   # janela curta — é sobre o movimento do dia, não uma tendência de dias
+BTC_OIL_DIVERGENCE_MIN_PCT = 0.5       # variação mínima (em cada lado) pra não disparar com ruído
+WAR_NEWS_QUERY = (
+    '(Iran OR Israel OR Houthi OR "Saudi Arabia" OR Yemen) AND '
+    '(war OR strike OR attack OR missile OR conflict)'
+)
 
 # --- Top 10 por market cap (CoinMarketCap) — usado no relatório categorizado
 # pra saber quais moedas entram no "swing secundário" além do XRP. Precisa
@@ -716,16 +759,17 @@ def _bybit_get(path, timeout=20):
 def fetch_klines(symbol: str, interval: str, limit: int):
     """
     Busca candles públicos da Bybit. Não precisa de API key. `interval` usa
-    a mesma notação de sempre no resto do bot ("5m", "15m", "1h", "4h",
-    "1d", "1w", "1M", "3d") — é convertida pro código que a Bybit espera via
-    `_BYBIT_INTERVAL_MAP`. "3d" é caso especial (ver
-    `_fetch_klines_3d_agregado`), porque a Bybit não tem esse intervalo
-    nativo. A categoria (spot ou linear/perpétuo) é decidida por
-    `_bybit_category_for` — a esmagadora maioria dos símbolos é spot, só os
-    listados em BYBIT_LINEAR_ONLY_SYMBOLS (MSTRUSDT, CLUSDT) usam linear.
+    a mesma notação de sempre no resto do bot ("5m", "15m", "30m", "1h",
+    "2h", "4h", "12h", "1d", "1w", "1M", "2d", "3d") — é convertida pro
+    código que a Bybit espera via `_BYBIT_INTERVAL_MAP`. "2d"/"3d" são caso
+    especial (ver `_fetch_klines_dias_agregados`), porque a Bybit não tem
+    esses intervalos nativos. A categoria (spot ou linear/perpétuo) é
+    decidida por `_bybit_category_for` — a esmagadora maioria dos símbolos é
+    spot, só os listados em BYBIT_LINEAR_ONLY_SYMBOLS (MSTRUSDT, CLUSDT)
+    usam linear.
     """
-    if interval == "3d":
-        return _fetch_klines_3d_agregado(symbol, limit)
+    if interval in ("2d", "3d"):
+        return _fetch_klines_dias_agregados(symbol, limit, dias=int(interval[0]))
 
     bybit_interval = _BYBIT_INTERVAL_MAP.get(interval)
     if bybit_interval is None:
@@ -751,27 +795,29 @@ def fetch_klines(symbol: str, interval: str, limit: int):
     return candles
 
 
-def _fetch_klines_3d_agregado(symbol, limit):
+def _fetch_klines_dias_agregados(symbol, limit, dias=3):
     """
-    A Bybit não tem intervalo nativo de 3 dias (só minutos/horas até 720, ou
-    D/W/M) — o tempo gráfico "3D" é usado pelo classificador de bandeira
-    (`classifica_bandeira`) como leitura extra quando o 4h fica "poluído".
-    Busca candles DIÁRIOS em quantidade suficiente e agrupa de 3 em 3 (mais
+    A Bybit não tem intervalo nativo de 2 ou 3 dias (só minutos/horas até
+    720, ou D/W/M) — o tempo gráfico "3D" é usado pelo classificador de
+    bandeira (`classifica_bandeira`) como leitura extra quando o 4h fica
+    "poluído"; o "2D" é usado pelo degrau extra da escada de fundo
+    ascendente (2h↔2D, pedido do Thiago em 21/09/2026). Busca candles
+    DIÁRIOS em quantidade suficiente e agrupa de `dias` em `dias` (mais
     antigo primeiro, alinhado a partir do candle mais recente) num candle
     sintético: abertura do primeiro dia do grupo, fechamento do último,
-    máxima/mínima do grupo inteiro, volume somado — o mesmo que um candle de
-    3D "de verdade" mostraria.
+    máxima/mínima do grupo inteiro, volume somado — o mesmo que um candle
+    "de verdade" desse tamanho mostraria.
     """
-    diarios = fetch_klines(symbol, "1d", limit * 3 + 3)
-    resto = len(diarios) % 3
+    diarios = fetch_klines(symbol, "1d", limit * dias + dias)
+    resto = len(diarios) % dias
     if resto:
-        diarios = diarios[resto:]  # descarta o excesso do início pra fechar em blocos completos de 3
-    candles_3d = []
-    for i in range(0, len(diarios), 3):
-        grupo = diarios[i:i + 3]
-        if len(grupo) < 3:
+        diarios = diarios[resto:]  # descarta o excesso do início pra fechar em blocos completos
+    candles_agrupados = []
+    for i in range(0, len(diarios), dias):
+        grupo = diarios[i:i + dias]
+        if len(grupo) < dias:
             continue
-        candles_3d.append({
+        candles_agrupados.append({
             "open_time": grupo[0]["open_time"],
             "open": grupo[0]["open"],
             "high": max(c["high"] for c in grupo),
@@ -779,7 +825,7 @@ def _fetch_klines_3d_agregado(symbol, limit):
             "close": grupo[-1]["close"],
             "volume": sum(c["volume"] for c in grupo),
         })
-    return candles_3d[-limit:]
+    return candles_agrupados[-limit:]
 
 
 def fetch_top_usdt_symbols(limit=TOP_N_SYMBOLS):
@@ -1886,6 +1932,45 @@ def adiciona_plano_b(sinais, candles_tf, candles_d):
     return sinais
 
 
+def adiciona_referencia_ema200_diaria(sinais, candles_d):
+    """
+    Acrescenta uma linha em `detalhes` citando a EMA200 diária como
+    referência de alvo intermediário, quando ela cai entre o preço de
+    entrada e o alvo técnico do sinal — sem mudar o alvo/stop calculado
+    (não é um novo critério de entrada, só enriquece o texto). Motivado
+    pela análise de uma operação real do robô do Diego em MANTA
+    (19/09/2026): ele lista "0,073–0,075 — região da EMA 200 diária" como
+    um dos alvos em sequência, um uso explícito de EMA como nível de alvo
+    projetado que o bot não fazia até então (só usava EMA como filtro de
+    tendência/contexto no checklist, nunca como referência de preço-alvo).
+    """
+    if not candles_d or len(candles_d) < MARKET_TREND_EMA_SLOW:
+        return sinais
+    ema200_d = compute_ema([c["close"] for c in candles_d], MARKET_TREND_EMA_SLOW)
+    if ema200_d is None or ema200_d <= 0:
+        return sinais
+    for sig in sinais:
+        try:
+            entrada = sig.get("entry_price")
+            alvo = sig.get("target_price")
+            if entrada is None or alvo is None:
+                continue
+            lo, hi = (entrada, alvo) if entrada <= alvo else (alvo, entrada)
+            if not (lo < ema200_d < hi):
+                continue  # EMA200 diária não fica entre a entrada e o alvo desse sinal
+            dist_pct = abs(ema200_d - entrada) / entrada * 100 if entrada else None
+            linha = (
+                f"Referência intermediária: EMA200 diária em {fmt_price(ema200_d)}"
+                + (f" ({dist_pct:+.1f}% do preço atual)" if dist_pct is not None else "")
+                + " — nível técnico entre a entrada e o alvo, costuma reagir antes de o "
+                  "preço continuar."
+            )
+            sig.setdefault("detalhes", []).append(linha)
+        except Exception:
+            pass
+    return sinais
+
+
 # ----------------------------------------------------------------------------
 # SINAL 1 — PULLBACK (swing)
 # ----------------------------------------------------------------------------
@@ -2186,88 +2271,104 @@ def _find_last_rsi_touch(candles, oversold, overbought, lookback):
     return None
 
 
-def check_retest_4h(symbol, candles_4h, candles_w=None):
+def _check_retest_ladder(symbol, candles_menor, candles_maior, rsi_oversold, rsi_overbought,
+                          tf_menor_label, tf_maior_field, tf_maior_prose, lookback,
+                          min_bounce_pct=RETEST_4H_MIN_BOUNCE_PCT, zone_tolerance=RETEST_4H_ZONE_TOLERANCE,
+                          stop_buffer=RETEST_4H_STOP_BUFFER):
     """
-    Segunda etapa do setup de RSI extremo no 4h (SIGNAL 3b — ver
-    check_scalp_4h): depois do primeiro toque, o preço costuma dar um
-    repique e depois voltar pra RETESTAR o fundo/topo daquela vela — se
-    segurar ali (sem romper de verdade), é a base de um possível fundo/topo
-    ascendente/descendente num tempo gráfico maior (semanal), com o próprio
-    fundo/topo do toque original servindo de referência pro stop. Quando
-    `candles_w` vem preenchido, soma fatores extra de confluência semanal
-    (EMA12 e Fibonacci 0.382 da última perna semanal) só como contexto —
-    não são obrigatórios pra disparar, mas reforçam a leitura quando batem
-    junto (o cenário descrito: reteste do 4h encostando na EMA12 semanal e
-    perto do 0.382 do último impulso).
+    Núcleo genérico da "escada de fundo ascendente" (SIGNAL 3b) — segunda
+    etapa do setup de RSI extremo num tempo gráfico "menor": depois do
+    primeiro toque, o preço costuma dar um repique e depois voltar pra
+    RETESTAR o fundo/topo daquela vela — se segurar ali (sem romper de
+    verdade), é a base de um possível fundo/topo ascendente/descendente num
+    tempo gráfico "maior", com o próprio fundo/topo do toque original
+    servindo de referência pro stop. Quando `candles_maior` vem preenchido,
+    soma fatores extra de confluência nesse tempo gráfico maior (EMA12 e
+    Fibonacci 0.382 da última perna) só como contexto — não são obrigatórios
+    pra disparar, mas reforçam a leitura quando batem junto.
+
+    Extraído de `check_retest_4h` (15/09/2026, degrau 4h↔semanal) em
+    21/09/2026 pra virar genérico e dar suporte aos degraus extra pedidos
+    pelo Thiago: 15m↔4h (comentário do grupo do Diego sobre correção no 4h
+    com entrada via sobrevenda no 15m), 30m↔12h e 2h↔2D (instrução direta
+    dele). Cada degrau é uma função fininha (`check_retest_4h`,
+    `check_retest_15m`, `check_retest_30m`, `check_retest_2h`) que só passa
+    os parâmetros certos pra esse núcleo — a lógica de repique/reteste/
+    confluência é idêntica em todos.
     """
-    achado = _find_last_rsi_touch(candles_4h, SCALP_4H_RSI_OVERSOLD, SCALP_4H_RSI_OVERBOUGHT, RETEST_4H_LOOKBACK)
+    achado = _find_last_rsi_touch(candles_menor, rsi_oversold, rsi_overbought, lookback)
     if achado is None:
         return None
     idx, lado, nivel = achado
     if nivel <= 0:
         return None
 
-    velas_depois = candles_4h[idx + 1:]
+    velas_depois = candles_menor[idx + 1:]
     if not velas_depois:
         return None
     acao = "COMPRAR" if lado == "sobrevenda" else "VENDER"
-    price_now = candles_4h[-1]["close"]
+    price_now = candles_menor[-1]["close"]
 
     if acao == "COMPRAR":
         pico_depois = max(c["high"] for c in velas_depois)
-        teve_repique = pico_depois >= nivel * (1 + RETEST_4H_MIN_BOUNCE_PCT)
+        teve_repique = pico_depois >= nivel * (1 + min_bounce_pct)
     else:
         fundo_depois = min(c["low"] for c in velas_depois)
-        teve_repique = fundo_depois <= nivel * (1 - RETEST_4H_MIN_BOUNCE_PCT)
+        teve_repique = fundo_depois <= nivel * (1 - min_bounce_pct)
     if not teve_repique:
         return None  # ainda não teve um repique de verdade — pode ser só ruído
 
     dist = abs(price_now - nivel) / nivel
-    if dist > RETEST_4H_ZONE_TOLERANCE:
+    if dist > zone_tolerance:
         return None  # longe demais do nível original pra contar como reteste
+    if acao == "COMPRAR" and price_now < nivel:
+        return None  # já rompeu abaixo do nível original — não é mais "reteste sem romper"
+    if acao == "VENDER" and price_now > nivel:
+        return None  # já rompeu acima do nível original — não é mais "reteste sem romper"
 
-    pivot_highs, pivot_lows = find_pivots(candles_4h, PIVOT_LEN)
+    pivot_highs, pivot_lows = find_pivots(candles_menor, PIVOT_LEN)
     if acao == "COMPRAR":
-        stop = avoid_round_number_stop(nivel * (1 - RETEST_4H_STOP_BUFFER), "compra")
+        stop = avoid_round_number_stop(nivel * (1 - stop_buffer), "compra")
         candidatos = [p[1] for p in pivot_highs if p[1] > price_now]
         alvo1 = min(candidatos) if candidatos else None
     else:
-        stop = avoid_round_number_stop(nivel * (1 + RETEST_4H_STOP_BUFFER), "venda")
+        stop = avoid_round_number_stop(nivel * (1 + stop_buffer), "venda")
         candidatos = [p[1] for p in pivot_lows if p[1] < price_now]
         alvo1 = max(candidatos) if candidatos else None
     if alvo1 is None:
-        return None  # sem alvo técnico no 4h pra checar risco/retorno
+        return None  # sem alvo técnico no tempo gráfico menor pra checar risco/retorno
 
     alvos = [alvo1]
     fatores_extra = []
-    if candles_w and len(candles_w) >= (2 * PIVOT_LEN + 10):
-        ema12_w = compute_ema([c["close"] for c in candles_w], 12)
-        if ema12_w is not None and ema12_w > 0:
-            dist_ema_w = abs(price_now - ema12_w) / ema12_w
-            if dist_ema_w <= CONFLUENCE_EMA_TOLERANCE:
-                fatores_extra.append(f"Preço perto da EMA12 no semanal ({fmt_price(ema12_w)})")
-        pivot_highs_w, pivot_lows_w = find_pivots(candles_w, PIVOT_LEN)
-        leg_w = last_impulse_leg(pivot_highs_w, pivot_lows_w)
-        if leg_w is not None:
-            fib_w = fib_level_price(leg_w, FIB_LEVEL)
-            if price_in_fib_zone(price_now, fib_w, FIB_TOLERANCE):
-                fatores_extra.append(f"Preço na zona de Fibonacci {FIB_LEVEL} da última perna semanal ({fmt_price(fib_w)})")
+    if candles_maior and len(candles_maior) >= (2 * PIVOT_LEN + 10):
+        ema12_maior = compute_ema([c["close"] for c in candles_maior], 12)
+        if ema12_maior is not None and ema12_maior > 0:
+            dist_ema_maior = abs(price_now - ema12_maior) / ema12_maior
+            if dist_ema_maior <= CONFLUENCE_EMA_TOLERANCE:
+                fatores_extra.append(f"Preço perto da EMA12 no {tf_maior_prose} ({fmt_price(ema12_maior)})")
+        pivot_highs_maior, pivot_lows_maior = find_pivots(candles_maior, PIVOT_LEN)
+        leg_maior = last_impulse_leg(pivot_highs_maior, pivot_lows_maior)
+        if leg_maior is not None:
+            fib_maior = fib_level_price(leg_maior, FIB_LEVEL)
+            if price_in_fib_zone(price_now, fib_maior, FIB_TOLERANCE):
+                perna_prep = "semanal" if tf_maior_prose == "semanal" else f"de {tf_maior_prose}"
+                fatores_extra.append(f"Preço na zona de Fibonacci {FIB_LEVEL} da última perna {perna_prep} ({fmt_price(fib_maior)})")
             if acao == "COMPRAR":
-                candidatos_w = [p[1] for p in pivot_highs_w if p[1] > alvo1 * 1.01]
-                alvo2 = min(candidatos_w) if candidatos_w else None
+                candidatos_maior = [p[1] for p in pivot_highs_maior if p[1] > alvo1 * 1.01]
+                alvo2 = min(candidatos_maior) if candidatos_maior else None
             else:
-                candidatos_w = [p[1] for p in pivot_lows_w if p[1] < alvo1 * 0.99]
-                alvo2 = max(candidatos_w) if candidatos_w else None
+                candidatos_maior = [p[1] for p in pivot_lows_maior if p[1] < alvo1 * 0.99]
+                alvo2 = max(candidatos_maior) if candidatos_maior else None
             if alvo2 is not None:
                 alvos.append(alvo2)
 
-    tempo_desde = len(candles_4h) - 1 - idx
+    tempo_desde = len(candles_menor) - 1 - idx
     lado_estrutura = "fundo" if acao == "COMPRAR" else "topo"
     nivel_txt = "sobrevenda" if lado == "sobrevenda" else "sobrecompra"
 
     detalhes = [
         f"Preço agora: {fmt_price(price_now)}",
-        f"RSI 4h tocou {nivel_txt} há {tempo_desde} vela(s) — {lado_estrutura} daquela vela em {fmt_price(nivel)}",
+        f"RSI {tf_menor_label} tocou {nivel_txt} há {tempo_desde} vela(s) — {lado_estrutura} daquela vela em {fmt_price(nivel)}",
         f"Preço voltou a retestar essa região agora ({dist * 100:.1f}% de distância)",
         f"Stop sugerido: {fmt_price(stop)} (logo além do {lado_estrutura} original)",
         f"Alvo{'s' if len(alvos) > 1 else ''}: {' > '.join(fmt_price(a) for a in alvos)}",
@@ -2275,7 +2376,7 @@ def check_retest_4h(symbol, candles_4h, candles_w=None):
     detalhes.extend(f"  • {f}" for f in fatores_extra)
 
     checklist = [
-        (f"RSI 4h fez primeiro toque de {nivel_txt} há {tempo_desde} vela(s)", True),
+        (f"RSI {tf_menor_label} fez primeiro toque de {nivel_txt} há {tempo_desde} vela(s)", True),
         ("Repique de verdade depois do toque (não é só ruído)", True),
         (f"Preço retestando o {lado_estrutura} original sem romper de verdade", True),
     ]
@@ -2286,11 +2387,11 @@ def check_retest_4h(symbol, candles_4h, candles_w=None):
         extra_txt = " Reforçando ainda mais: " + "; ".join(fatores_extra) + "."
 
     explicacao = (
-        f"Depois do primeiro toque do RSI de 4h em {nivel_txt}, o {_fmt_symbol(symbol)} deu um repique "
-        f"e agora está retestando o {lado_estrutura} daquela vela ({fmt_price(nivel)}) sem romper de "
-        "verdade — é o tipo de reteste que, se segurar, pode marcar a base de um "
+        f"Depois do primeiro toque do RSI de {tf_menor_label} em {nivel_txt}, o {_fmt_symbol(symbol)} deu "
+        f"um repique e agora está retestando o {lado_estrutura} daquela vela ({fmt_price(nivel)}) sem "
+        "romper de verdade — é o tipo de reteste que, se segurar, pode marcar a base de um "
         f"{'fundo' if acao == 'COMPRAR' else 'topo'} ascendente/descendente num tempo gráfico maior "
-        f"(semanal), com o próprio nível do toque original servindo de referência pro stop.{extra_txt}"
+        f"({tf_maior_prose}), com o próprio nível do toque original servindo de referência pro stop.{extra_txt}"
     )
     aviso = (
         "Reteste ainda pode romper o nível original — se isso acontecer, o cenário de base muda "
@@ -2299,15 +2400,60 @@ def check_retest_4h(symbol, candles_4h, candles_w=None):
 
     return {
         "symbol": symbol, "estilo": "SWING", "acao": acao,
-        "titulo": f"Reteste do {lado_estrutura} após 1º toque de RSI no 4h",
-        "timeframe": "4h" + (" + 1w" if len(alvos) > 1 or fatores_extra else ""),
+        "titulo": f"Reteste do {lado_estrutura} após 1º toque de RSI no {tf_menor_label}",
+        "timeframe": tf_menor_label + (f" + {tf_maior_field}" if len(alvos) > 1 or fatores_extra else ""),
         "detalhes": detalhes,
         "checklist": checklist,
         "entry_price": price_now, "target_price": alvos[0], "target_prices": alvos, "stop_price": stop,
-        "resumo": f"Reteste do {lado_estrutura} de {fmt_price(nivel)} após o 1º toque de RSI no 4h, {tempo_desde} vela(s) atrás.",
+        "resumo": f"Reteste do {lado_estrutura} de {fmt_price(nivel)} após o 1º toque de RSI no {tf_menor_label}, {tempo_desde} vela(s) atrás.",
         "explicacao": explicacao,
         "aviso": aviso,
     }
+
+
+def check_retest_4h(symbol, candles_4h, candles_w=None):
+    """Degrau 4h↔semanal da escada de fundo ascendente (15/09/2026) — ver `_check_retest_ladder`."""
+    return _check_retest_ladder(
+        symbol, candles_4h, candles_w, SCALP_4H_RSI_OVERSOLD, SCALP_4H_RSI_OVERBOUGHT,
+        "4h", "1w", "semanal", RETEST_4H_LOOKBACK,
+    )
+
+
+def check_retest_15m(symbol, candles_15m, candles_4h=None):
+    """
+    Degrau 15m↔4h da escada de fundo ascendente (21/09/2026) — motivado por
+    um comentário do grupo do Diego: correção no 4h em vários ativos
+    possibilitando entrada via sobrevenda no 15m, esperando que virem novas
+    bases do 4h pra seguir com rompimento de topo. Ver `_check_retest_ladder`.
+    """
+    return _check_retest_ladder(
+        symbol, candles_15m, candles_4h, SCALP_15M_RSI_OVERSOLD, SCALP_15M_RSI_OVERBOUGHT,
+        "15m", "4h", "4h", RETEST_15M_LOOKBACK,
+    )
+
+
+def check_retest_30m(symbol, candles_30m, candles_12h=None):
+    """
+    Degrau 30m↔12h da escada de fundo ascendente (21/09/2026) — pedido
+    direto do Thiago: "o fundo ascendente no 12H ocorre normalmente quando o
+    30 min entra em sobrevenda". Ver `_check_retest_ladder`.
+    """
+    return _check_retest_ladder(
+        symbol, candles_30m, candles_12h, SCALP_30M_RSI_OVERSOLD, SCALP_30M_RSI_OVERBOUGHT,
+        "30m", "12h", "12h", RETEST_30M_LOOKBACK,
+    )
+
+
+def check_retest_2h(symbol, candles_2h, candles_2d=None):
+    """
+    Degrau 2h↔2D da escada de fundo ascendente (21/09/2026) — pedido direto
+    do Thiago: "o fundo ascendente do 2D ocorre quando o 2h entra em nível
+    de sobrevenda no RSI". Ver `_check_retest_ladder`.
+    """
+    return _check_retest_ladder(
+        symbol, candles_2h, candles_2d, SCALP_2H_RSI_OVERSOLD, SCALP_2H_RSI_OVERBOUGHT,
+        "2h", "2D", "2D", RETEST_2H_LOOKBACK,
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -3593,6 +3739,129 @@ def diagnose_range_market(candles):
     return None  # já perto de uma borda: isso já teria virado sinal de verdade lá em cima
 
 
+def diagnose_oco_pattern(symbol, candles, timeframe_label="4h", pivot_len=PIVOT_LEN):
+    """
+    Versão "quase lá" do `check_oco_pattern` (mesmo espírito do
+    `diagnose_confluence`) — motivada pela análise de uma operação real do
+    robô do Diego em MANTA (19/09/2026), onde o gráfico de 4h mostrava uma
+    projeção desenhada à mão do ombro 2/pescoço ainda por vir: o bot ficava
+    mudo nesse cenário, só avisando depois do pescoço já ter rompido.
+
+    Cobre dois estágios "quase lá", do mais adiantado pro menos adiantado:
+
+    1) Os 3 pivôs (ombro1/cabeça/ombro2) já estão TODOS confirmados — a
+       `_find_oco_estrutura` já reconhece a estrutura — mas o pescoço ainda
+       não rompeu (senão já teria virado sinal de verdade no
+       `check_oco_pattern`). Só falta o rompimento.
+    2) Só ombro1 e cabeça são pivôs confirmados; o preço, depois da cabeça,
+       já recuperou de volta pra dentro da faixa onde o ombro 2 precisaria
+       se formar (sem fazer fundo/topo novo além da cabeça) — mas o ombro 2
+       em si ainda não é um pivô confirmado (precisa de `pivot_len` candles
+       "segurando" do outro lado dele pra confirmar como pivô), então não
+       dá pra reaproveitar `_find_oco_estrutura` direto nesse estágio.
+
+    Em ambos os casos só dispara se o preço já está razoavelmente perto do
+    nível do pescoço (`OCO_DIAG_MAX_NECKLINE_DIST_PCT`) — longe demais do
+    pescoço não vale a pena avisar ainda.
+    """
+    n = len(candles)
+    min_candles = 2 * pivot_len + 15
+    if n < min_candles:
+        return None
+    price_now = candles[-1]["close"]
+    pivot_highs, pivot_lows = find_pivots(candles, pivot_len)
+    limite = max(0, n - OCO_LOOKBACK)
+
+    for invertido in (True, False):
+        extremos = pivot_lows if invertido else pivot_highs
+        opostos = pivot_highs if invertido else pivot_lows
+        nome_padrao = "OCOi (Ombro-Cabeça-Ombro invertido)" if invertido else "OCO (Ombro-Cabeça-Ombro)"
+        direcao_txt = "alta" if invertido else "baixa"
+
+        # --- estágio 1: os 3 pivôs já prontos, falta só romper o pescoço ---
+        estrutura = _find_oco_estrutura(extremos, opostos, limite, invertido)
+        if estrutura is not None:
+            idx_p1, val_p1 = estrutura["pescoco1"]
+            idx_p2, val_p2 = estrutura["pescoco2"]
+            if idx_p2 == idx_p1:
+                continue
+            slope = (val_p2 - val_p1) / (idx_p2 - idx_p1)
+            nivel_pescoco = val_p1 + slope * (n - 1 - idx_p1)
+            if nivel_pescoco <= 0:
+                continue
+            dist_pct = abs(nivel_pescoco - price_now) / nivel_pescoco
+            if dist_pct > OCO_DIAG_MAX_NECKLINE_DIST_PCT:
+                continue
+            return {
+                "tipo": f"{nome_padrao} — falta romper o pescoço",
+                "score": dist_pct / OCO_DIAG_MAX_NECKLINE_DIST_PCT,
+                "texto": (
+                    f"{nome_padrao} já com os 3 pivôs formados no {timeframe_label} "
+                    f"(ombro 1 {fmt_price(estrutura['ombro1'][1])}, cabeça "
+                    f"{fmt_price(estrutura['cabeca'][1])}, ombro 2 "
+                    f"{fmt_price(estrutura['ombro2'][1])}) — falta só romper o pescoço em "
+                    f"{fmt_price(nivel_pescoco)} (preço agora {fmt_price(price_now)}, a "
+                    f"{dist_pct * 100:.1f}%) pra confirmar o padrão e virar sinal de "
+                    f"{direcao_txt}."
+                ),
+            }
+
+        # --- estágio 2: só ombro1 + cabeça prontos, ombro2 ainda se formando ---
+        pts = [p for p in extremos if p[0] >= limite]
+        if len(pts) < 2:
+            continue
+        (idx1, p1), (idx2, p2) = pts[-2:]
+        if invertido:
+            if not (p2 < p1):
+                continue
+            prof1 = (p1 - p2) / p1 if p1 > 0 else 0
+        else:
+            if not (p2 > p1):
+                continue
+            prof1 = (p2 - p1) / p1 if p1 > 0 else 0
+        if prof1 < OCO_MIN_HEAD_DEPTH_PCT:
+            continue  # cabeça não é claramente mais funda/alta que o ombro 1 ainda
+
+        pescoco1_cands = [q for q in opostos if idx1 < q[0] < idx2]
+        if not pescoco1_cands:
+            continue
+        pescoco1 = (max(pescoco1_cands, key=lambda q: q[1]) if invertido
+                    else min(pescoco1_cands, key=lambda q: q[1]))
+        nivel_pescoco = pescoco1[1]
+        if nivel_pescoco <= 0:
+            continue
+
+        candles_depois_cabeca = candles[idx2 + 1:]
+        if len(candles_depois_cabeca) < 2:
+            continue  # cabeça recente demais, ombro 2 nem começou a se formar
+
+        if invertido:
+            fundo_pos_cabeca = min(c["low"] for c in candles_depois_cabeca)
+            formando = fundo_pos_cabeca > p2 and p2 < price_now < nivel_pescoco
+        else:
+            topo_pos_cabeca = max(c["high"] for c in candles_depois_cabeca)
+            formando = topo_pos_cabeca < p2 and nivel_pescoco < price_now < p2
+        if not formando:
+            continue
+
+        dist_pct = abs(nivel_pescoco - price_now) / nivel_pescoco
+        if dist_pct > OCO_DIAG_MAX_NECKLINE_DIST_PCT:
+            continue
+
+        return {
+            "tipo": f"{nome_padrao} em formação",
+            "score": dist_pct / OCO_DIAG_MAX_NECKLINE_DIST_PCT,
+            "texto": (
+                f"{nome_padrao} ainda em formação no {timeframe_label}: ombro 1 "
+                f"({fmt_price(p1)}) e cabeça ({fmt_price(p2)}) já confirmados, ombro 2 "
+                f"se formando agora perto de {fmt_price(price_now)} — falta romper o "
+                f"pescoço em {fmt_price(nivel_pescoco)} (a {dist_pct * 100:.1f}%) pra "
+                f"confirmar o padrão e virar sinal de {direcao_txt}."
+            ),
+        }
+    return None
+
+
 def build_diagnostic_message(diagnosticos):
     """
     Fica só com o diagnóstico MAIS próximo de cada moeda (não um por tipo de
@@ -3645,7 +3914,11 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
 
     try:
         candles_4h = fetch_klines(symbol, INTERVAL, KLINES_LIMIT)
-        candles_d = fetch_klines(symbol, "1d", 200)
+        # +20 de folga além do mínimo do EMA200 (mesmo padrão usado pro BTC em
+        # detect_market_trend) — com exatamente 200 candles o EMA200 vira só
+        # a média simples da janela inteira (sem nenhuma iteração de
+        # convergência exponencial de verdade).
+        candles_d = fetch_klines(symbol, "1d", MARKET_TREND_EMA_SLOW + 20)
         candles_w = fetch_klines(symbol, "1w", 1000)
         candles_15m = fetch_klines(symbol, "15m", CONFLUENCE_15M_LIMIT)
         candles_1h = fetch_klines(symbol, "1h", 100)
@@ -3663,6 +3936,25 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         candles_3d = fetch_klines(symbol, "3d", 200)
     except Exception:
         candles_3d = []
+
+    # degraus extra da escada de fundo ascendente (21/09/2026) — 15m↔4h,
+    # 30m↔12h e 2h↔2D, além do 4h↔semanal já buscado acima.
+    try:
+        candles_30m = fetch_klines(symbol, "30m", RETEST_30M_LOOKBACK + 20)
+    except Exception:
+        candles_30m = []
+    try:
+        candles_12h = fetch_klines(symbol, "12h", 200)
+    except Exception:
+        candles_12h = []
+    try:
+        candles_2h = fetch_klines(symbol, "2h", RETEST_2H_LOOKBACK + 20)
+    except Exception:
+        candles_2h = []
+    try:
+        candles_2d = fetch_klines(symbol, "2d", 200)
+    except Exception:
+        candles_2d = []
 
     price_now = candles_4h[-1]["close"]
     linhas = [f"🧭 VELA MONITOR — ANÁLISE — {_fmt_symbol(symbol)}", "",
@@ -3694,6 +3986,30 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
             sinais_ativos.append(sig)
     except Exception:
         pass
+
+    if candles_15m:
+        try:
+            sig = check_retest_15m(symbol, candles_15m, candles_4h)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
+
+    if candles_30m:
+        try:
+            sig = check_retest_30m(symbol, candles_30m, candles_12h)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
+
+    if candles_2h:
+        try:
+            sig = check_retest_2h(symbol, candles_2h, candles_2d)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
 
     try:
         sig = check_trendline_breakout(symbol, candles_4h, "4h")
@@ -3756,10 +4072,12 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         diagnose_bottom_fishing(candles_d, candles_w) if (candles_d and candles_w) else None,
         diagnose_light_reversal(candles_d) if candles_d else None,
         diagnose_confluence(candles_4h, candles_15m, candles_1h, candles_5m) if (candles_15m and candles_1h) else None,
+        diagnose_oco_pattern(symbol, candles_4h, "4h"),
     ) if d]
 
     sinais_ativos = aplica_filtros_qualidade(sinais_ativos, market_trend, diagnosticos_extra=diagnosticos)
     sinais_ativos = adiciona_plano_b(sinais_ativos, candles_4h, candles_d)
+    sinais_ativos = adiciona_referencia_ema200_diaria(sinais_ativos, candles_d)
 
     contexto_txt = None
     if symbol != "BTCUSDT" and candles_d:
@@ -4369,7 +4687,9 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
 
     # bottom fishing e reversão leve compartilham os candles diário/semanal
     try:
-        candles_d = fetch_klines(symbol, "1d", 200)
+        # +20 de folga além do mínimo do EMA200 diário — ver comentário
+        # equivalente em build_symbol_deep_dive.
+        candles_d = fetch_klines(symbol, "1d", MARKET_TREND_EMA_SLOW + 20)
         candles_w = fetch_klines(symbol, "1w", 1000)
     except Exception as e:
         print(f"  {symbol}: erro ao buscar candles diário/semanal ({e})")
@@ -4405,6 +4725,44 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
     except Exception as e:
         print(f"  {symbol}: erro no check de reteste após toque de RSI no 4h ({e})")
 
+    if candles_15m:
+        try:
+            sig = check_retest_15m(symbol, candles_15m, candles_4h)
+            if sig:
+                sinais.append(sig)
+        except Exception as e:
+            print(f"  {symbol}: erro no check de reteste após toque de RSI no 15m ({e})")
+
+    # degraus extra da escada de fundo ascendente (21/09/2026) — 30m↔12h e
+    # 2h↔2D, buscados só aqui (não são usados em mais nada em analyze_symbol).
+    try:
+        candles_30m = fetch_klines(symbol, "30m", RETEST_30M_LOOKBACK + 20)
+        candles_12h = fetch_klines(symbol, "12h", 200)
+    except Exception as e:
+        print(f"  {symbol}: erro buscando candles de 30m/12h ({e})")
+        candles_30m, candles_12h = [], []
+    if candles_30m:
+        try:
+            sig = check_retest_30m(symbol, candles_30m, candles_12h)
+            if sig:
+                sinais.append(sig)
+        except Exception as e:
+            print(f"  {symbol}: erro no check de reteste após toque de RSI no 30m ({e})")
+
+    try:
+        candles_2h = fetch_klines(symbol, "2h", RETEST_2H_LOOKBACK + 20)
+        candles_2d = fetch_klines(symbol, "2d", 200)
+    except Exception as e:
+        print(f"  {symbol}: erro buscando candles de 2h/2D ({e})")
+        candles_2h, candles_2d = [], []
+    if candles_2h:
+        try:
+            sig = check_retest_2h(symbol, candles_2h, candles_2d)
+            if sig:
+                sinais.append(sig)
+        except Exception as e:
+            print(f"  {symbol}: erro no check de reteste após toque de RSI no 2h ({e})")
+
     try:
         sig = check_trendline_breakout(symbol, candles_4h, "4h")
         if sig:
@@ -4416,11 +4774,16 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
         sig = check_oco_pattern(symbol, candles_4h, "4h")
         if sig:
             sinais.append(sig)
+        else:
+            diag = diagnose_oco_pattern(symbol, candles_4h, "4h")
+            if diag:
+                diagnosticos.append({"symbol": symbol, **diag})
     except Exception as e:
         print(f"  {symbol}: erro no check de padrão ombro-cabeça-ombro ({e})")
 
     sinais = aplica_filtros_qualidade(sinais, market_trend, diagnosticos_extra=diagnosticos)
     sinais = adiciona_plano_b(sinais, candles_4h, candles_d)
+    sinais = adiciona_referencia_ema200_diaria(sinais, candles_d)
     return sinais, diagnosticos
 
 
@@ -4510,6 +4873,98 @@ def build_news_fallback_message():
     linhas.append(
         "Título e resumo traduzidos automaticamente, link original da Reuters "
         "em cada notícia — conteúdo é da Reuters, não do bot."
+    )
+    return "\n".join(linhas)
+
+
+# ----------------------------------------------------------------------------
+# CONTEXTO DE GUERRA/RISCO GEOPOLÍTICO (BTC caindo + petróleo subindo)
+# ----------------------------------------------------------------------------
+
+def detect_queda_btc_alta_petroleo(btc_ret, oil_ret, min_pct=BTC_OIL_DIVERGENCE_MIN_PCT):
+    """
+    True quando o BTC caiu pelo menos `min_pct`% E o petróleo (CLUSDT) subiu
+    pelo menos `min_pct`% na mesma janela — o padrão clássico de "dinheiro
+    saindo de ativo de risco + petróleo reagindo a tensão geopolítica" que o
+    Thiago pediu pra monitorar. `btc_ret`/`oil_ret` vêm de pct_return() (já
+    em percentual, ex.: -0.8 = -0.8%) — se qualquer um dos dois for None
+    (candles insuficientes), não dispara.
+    """
+    if btc_ret is None or oil_ret is None:
+        return False
+    return btc_ret <= -min_pct and oil_ret >= min_pct
+
+
+def fetch_war_news_headlines(limit=NEWS_MAX_HEADLINES):
+    """
+    Mesmo mecanismo do fetch_reuters_headlines (NewsAPI.org, plano
+    gratuito), mas em vez de filtrar por domínio da Reuters, busca por
+    palavras-chave de guerra/conflito no Oriente Médio via WAR_NEWS_QUERY —
+    pra trazer contexto quando o BTC cai e o petróleo sobe ao mesmo tempo.
+    Só título, resumo curto e link original — nunca o texto completo do
+    artigo. Sem NEWS_API_KEY configurada, ou se a busca falhar por qualquer
+    motivo, devolve lista vazia (o chamador trata como "sem notícia
+    disponível", nunca quebra a varredura por causa disso).
+    """
+    if not NEWS_API_KEY:
+        return []
+    params = urllib.parse.urlencode({
+        "q": WAR_NEWS_QUERY,
+        "language": "en",
+        "sortBy": "publishedAt",
+        "pageSize": limit,
+        "apiKey": NEWS_API_KEY,
+    })
+    url = f"{NEWS_API_BASE}/everything?{params}"
+    req = urllib.request.Request(url, headers={"User-Agent": "vela-monitor-bot/1.0"})
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+    artigos = data.get("articles", [])[:limit]
+    noticias = []
+    for a in artigos:
+        titulo = (a.get("title") or "").strip()
+        if not titulo:
+            continue
+        noticias.append({
+            "titulo": titulo,
+            "descricao": (a.get("description") or "").strip(),
+            "url": a.get("url") or "",
+        })
+    return noticias
+
+
+def build_war_news_context_texto(btc_ret=None, oil_ret=None):
+    """
+    Monta o texto de contexto pra anexar ao status core quando
+    detect_queda_btc_alta_petroleo() der True — manchetes traduzidas sobre
+    a situação geopolítica (Irã/Israel/Houthis/Arábia Saudita), pra explicar
+    o "porquê" do BTC caindo junto com o petróleo subindo. Devolve None se
+    não tiver NEWS_API_KEY configurada ou a busca não trouxer nada — nesse
+    caso o chamador simplesmente não anexa nada (o status core segue normal,
+    sem essa seção).
+    """
+    try:
+        noticias = fetch_war_news_headlines()
+    except Exception as e:
+        print(f"  erro buscando manchetes de contexto de guerra ({e})")
+        return None
+    if not noticias:
+        return None
+
+    cabecalho = "🌍 Contexto: BTC caindo com petróleo subindo"
+    if btc_ret is not None and oil_ret is not None:
+        cabecalho += f" (BTC {btc_ret:+.1f}% / petróleo {oil_ret:+.1f}% em {BTC_OIL_DIVERGENCE_LOOKBACK_DAYS}d)"
+    linhas = [cabecalho, ""]
+    for n in noticias:
+        linhas.append(f"• {translate_to_pt(n['titulo'])}")
+        if n["descricao"]:
+            linhas.append(f"  {translate_to_pt(n['descricao'])}")
+        if n["url"]:
+            linhas.append(f"  {n['url']}")
+        linhas.append("")
+    linhas.append(
+        "Título e resumo traduzidos automaticamente, link original em cada "
+        "notícia — contexto informativo, não é sinal de trade."
     )
     return "\n".join(linhas)
 
@@ -5186,6 +5641,22 @@ def main():
     if envia_status_core:
         try:
             status_msg = build_core_status_message(core_symbols, sinais_por_moeda, diagnosticos_lista_por_moeda, candles_d_extra, market_trend=market_trend, memoria_anterior=memoria_anterior, candles_entry_extra=candles_entry_extra)
+
+            # Contexto de guerra: se o BTC caiu e o petróleo (CLUSDT) subiu ao
+            # mesmo tempo, busca manchetes sobre a situação geopolítica e
+            # anexa ao status core — pedido do Thiago, 21/09/2026.
+            try:
+                btc_ret = pct_return(candles_d_extra.get("BTCUSDT", []), days=BTC_OIL_DIVERGENCE_LOOKBACK_DAYS)
+                oil_ret = pct_return(candles_d_extra.get("CLUSDT", []), days=BTC_OIL_DIVERGENCE_LOOKBACK_DAYS)
+                if detect_queda_btc_alta_petroleo(btc_ret, oil_ret):
+                    print(f"  BTC {btc_ret:+.1f}% / petróleo {oil_ret:+.1f}% em "
+                          f"{BTC_OIL_DIVERGENCE_LOOKBACK_DAYS}d — buscando contexto de notícia de guerra...")
+                    contexto_guerra = build_war_news_context_texto(btc_ret, oil_ret)
+                    if contexto_guerra:
+                        status_msg = status_msg + "\n\n" + contexto_guerra
+            except Exception as e:
+                print(f"  erro checando/buscando contexto de guerra ({e})")
+
             ok = send_telegram_message(status_msg)
             print("  -> status core enviado" if ok else "  -> FALHOU ao enviar o status core")
         except Exception as e:

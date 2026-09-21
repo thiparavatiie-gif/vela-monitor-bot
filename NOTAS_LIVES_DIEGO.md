@@ -690,8 +690,40 @@ virar sinal com peso próprio.
    depois do 1º toque de RSI no 4h, com stop no fundo/topo do toque
    original, alvo técnico do 4h e (quando dá) um 2º alvo no semanal, mais
    fatores extra de confluência semanal (EMA12 e Fibonacci 0.382) — 15/09/2026.
-   Os outros 4 degraus da escada (1M↔1D, 1D↔1h, 15m↔4h, 5m↔1h) ainda não
-   foram implementados — mesma lógica, só trocando os tempos gráficos.
+
+   **Reformulação complementar (21/09/2026)**, também do próprio Thiago, não
+   de nenhuma live: "em tendência de alta as melhores entradas são sempre em
+   fundos ascendentes em tempos gráficos maiores — se um tempo gráfico menor
+   perder o último fundo (fundo descendente), é porque algum tempo gráfico
+   maior está buscando sua própria base." É a mesma escada, só descrita "de
+   cima pra baixo": em vez de olhar o tempo menor tocando RSI extremo e
+   confirmar a base do tempo maior (como o item 7 original e o comentário do
+   grupo do Diego sobre 4h↔15m — ver Progresso 21/09), essa formulação
+   parte do sintoma inverso (estrutura do tempo menor quebrando) pra
+   perguntar qual tempo gráfico de cima está em correção. O mais próximo que
+   o Diego já disse nas lives processadas até agora é o princípio de
+   tendência multi-tempo-gráfico ("nunca shortar um ativo em alta em todos
+   os tempos gráficos", já implementado em `detect_market_trend`) — não a
+   formulação específica de "fundo descendente = sintoma de base maior em
+   formação". Candidato futuro (ainda não implementado): um diagnóstico que,
+   ao detectar um fundo descendente num tempo gráfico menor, identifica
+   automaticamente qual tempo gráfico maior mais provavelmente está
+   buscando sua base (reaproveitando a mesma cascata de tempos gráficos dos
+   degraus da escada).
+
+   **✅ IMPLEMENTADOS mais 3 degraus (21/09/2026)**: 15m↔4h (motivado por um
+   comentário do grupo do Diego sobre correção no 4h abrindo entrada via
+   sobrevenda no 15m, esperando novas bases do 4h pra seguir com rompimento
+   de topo), 30m↔12h e 2h↔2D (pedido direto do Thiago). A lógica de
+   `check_retest_4h` virou genérica (`_check_retest_ladder`), com
+   `check_retest_4h`/`check_retest_15m`/`check_retest_30m`/`check_retest_2h`
+   como wrappers finos — mesmo comportamento, só troca o par de tempos
+   gráficos e os limiares de RSI. Precisou de suporte a mais intervalos na
+   Bybit: "30m"/"2h"/"12h" mapeiam direto, e "2D" (sem intervalo nativo)
+   passou a reaproveitar a mesma agregação de candles diários que já
+   existia só pro "3D" (`_fetch_klines_dias_agregados`, generalizada de
+   `_fetch_klines_3d_agregado`). Os degraus 1M↔1D e 1D↔1h ainda não foram
+   implementados — mesma lógica, só trocando os tempos gráficos.
 8. **Classificador de bandeira de alta/baixa via Fibonacci (limite 0.382) +
    direção do volume** — live #7 (17/09/2026): bandeira de baixa exige
    correção contida até 0.382 de fib COM volume descendente e rompimentos
@@ -767,15 +799,16 @@ virar sinal com peso próprio.
 15. **OCOi/OCO "em formação" (ombro 1 + cabeça já prontos, ombro 2 ainda se
     formando, pescoço ainda não rompido)** — análise de uma operação real do
     robô do Diego em MANTA (19/09/2026, gráfico de 4h com uma projeção
-    desenhada à mão do ombro 2 e do pescoço esperado). **→ o bot não tem
-    isso hoje**: `check_oco_pattern` só dispara quando o pescoço JÁ foi
-    rompido nesta vela — um padrão em formação (só ombro 1 + cabeça
-    prontos) não gera nenhum aviso, mesmo sendo exatamente o momento em que
-    vale ficar de olho. Candidato: uma versão "quase lá" desse sinal
-    (mesmo espírito do `diagnose_confluence`, que já existe pra confluência
-    multi-indicador), reaproveitando `_find_oco_estrutura`, mostrando o
-    nível provável do pescoço e o range onde o ombro 2 precisaria se formar
-    pra validar o padrão.
+    desenhada à mão do ombro 2 e do pescoço esperado). **✅ IMPLEMENTADO**
+    (`diagnose_oco_pattern`, 19/09/2026) — versão "quase lá" do
+    `check_oco_pattern` (mesmo espírito do `diagnose_confluence`), cobrindo
+    dois estágios: (a) os 3 pivôs já prontos mas o pescoço ainda não
+    rompeu (reaproveita `_find_oco_estrutura` direto), e (b) só ombro 1 +
+    cabeça confirmados, com o preço já recuperando de volta pra dentro da
+    faixa onde o ombro 2 precisaria se formar. Só dispara quando o preço já
+    está a até `OCO_DIAG_MAX_NECKLINE_DIST_PCT` (8%) do nível do pescoço,
+    plugado tanto no fluxo normal (`analyze_symbol`) quanto na análise
+    detalhada (`build_symbol_deep_dive`).
 16. **Screener de "moedas atrasadas" (candidatas a compra por rotação/
     catch-up)** — mesma live/análise de MANTA: o próprio texto do robô do
     Diego chama a moeda de "atrasada em relação a várias outras que já
@@ -791,20 +824,31 @@ virar sinal com peso próprio.
     (`detect_market_trend`/`check_dominance_altseason`), pra não sugerir
     "atrasada" num mercado de baixa geral.
 
-**Observação (candidato futuro, não implementado)**: a mesma análise de
-MANTA também reforça, sem exigir código novo, dois comportamentos já
-implementados — o filtro de risco/retorno (o próprio robô do Diego evita
-perseguir o preço atual por causa de R:R ruim, mesma filosofia do
-`MIN_REWARD_RISK_RATIO`) e o stop com margem além de nível redondo
-(`avoid_round_number_stop`, "evitar uma simples varrida do suporte"). O
-gráfico diário mostrado pelo Thiago também confirma visualmente a correção
-de EMA12/26 feita hoje (item 12): as próprias EMAs 12 e 26 do TradingView
-aparecem quase coladas (0,05944 vs 0,05939) prestes a cruzar, e a EMA200
-diária (0,07375) bate exatamente com a zona de alvo intermediário
-("0,073–0,075 — região da EMA 200 diária") que o robô do Diego citou —
-ou seja, ele usa EMA200 diária como referência explícita de alvo, algo que
-o bot hoje não faz de forma automática (só usa EMAs como filtro de
-tendência/contexto, não como nível de alvo projetado).
+**Observação**: a mesma análise de MANTA também reforça, sem exigir código
+novo, dois comportamentos já implementados — o filtro de risco/retorno (o
+próprio robô do Diego evita perseguir o preço atual por causa de R:R ruim,
+mesma filosofia do `MIN_REWARD_RISK_RATIO`) e o stop com margem além de
+nível redondo (`avoid_round_number_stop`, "evitar uma simples varrida do
+suporte"). O gráfico diário mostrado pelo Thiago também confirma
+visualmente a correção de EMA12/26 feita hoje (item 12): as próprias EMAs
+12 e 26 do TradingView aparecem quase coladas (0,05944 vs 0,05939) prestes
+a cruzar, e a EMA200 diária (0,07375) bate exatamente com a zona de alvo
+intermediário ("0,073–0,075 — região da EMA 200 diária") que o robô do
+Diego citou — ou seja, ele usa EMA200 diária como referência explícita de
+alvo. **✅ IMPLEMENTADO** (`adiciona_referencia_ema200_diaria`,
+19/09/2026) — sem virar critério de entrada nem mudar o alvo calculado por
+nenhum sinal, acrescenta uma linha em `detalhes` citando a EMA200 diária
+sempre que ela cair entre o preço de entrada e o alvo técnico de qualquer
+sinal COMPRAR/VENDER, tanto no fluxo normal quanto na análise detalhada.
+Efeito colateral técnico: os candles diários buscados por `analyze_symbol`/
+`build_symbol_deep_dive` passaram de 200 pra `MARKET_TREND_EMA_SLOW + 20`
+(220) — com exatamente 200 candles o "EMA200" virava só a média simples da
+janela inteira, sem nenhuma iteração de convergência exponencial de
+verdade (mesmo ajuste de folga que `detect_market_trend` já usa pro BTC).
+
+O item 16 (screener de moedas atrasadas/rotação pro lado comprado) segue
+como candidato futuro, ainda não implementado — o Thiago priorizou os
+outros dois candidatos primeiro.
 
 ---
 
@@ -965,4 +1009,78 @@ tendência/contexto, não como nível de alvo projetado).
   além de validar de novo (sem mudança) o filtro de risco/retorno, o stop
   com folga de nível redondo, e expor que o bot não usa EMA200 diária como
   nível de alvo projetado (só como filtro de tendência/contexto) — ver
-  observação acima. Aguardando o Thiago escolher quais candidatos priorizar.
+  observação acima.
+- 19/09/2026 (mesmo dia, sessão seguinte): o Thiago escolheu priorizar 2 dos
+  3 candidatos concretos da análise de MANTA — diagnóstico de OCOi/OCO em
+  formação (item 15) e EMA200 diária como alvo projetado — deixando de fora,
+  por enquanto, o screener de moedas atrasadas (item 16). **✅ IMPLEMENTADOS
+  no mesmo dia**: (a) `diagnose_oco_pattern` — cobre os dois estágios "quase
+  lá" descritos no item 15, plugado em `analyze_symbol` e
+  `build_symbol_deep_dive`; (b) `adiciona_referencia_ema200_diaria` — cita a
+  EMA200 diária em `detalhes` sempre que ela cair entre a entrada e o alvo
+  de qualquer sinal, sem virar critério de entrada nem mudar o alvo
+  calculado; como efeito colateral, o EMA200 diário usado em
+  `analyze_symbol`/`build_symbol_deep_dive` passou a ter 20 candles de
+  folga (220 no total), porque com exatamente 200 o cálculo virava só a
+  média simples da janela (sem convergência exponencial de verdade) — mesmo
+  ajuste que `detect_market_trend` já usa pro BTC. Testes novos escritos
+  cobrindo os dois estágios do diagnóstico de OCO (inclusive confirmando
+  que `check_oco_pattern` continua None enquanto o diagnóstico dispara,
+  sem sobreposição) e os casos de EMA200 dentro/fora do range e
+  candles/sinal incompletos; suíte completa (22 arquivos agora) re-rodada
+  sem regressões.
+- 21/09/2026: o Thiago colou um comentário do Diego no grupo dele sobre a
+  correção no 4h liberando entradas com 15m em sobrevenda "esperando que
+  sejam novas bases do 4h" — validação direta e não solicitada do 2º degrau
+  da escada de fundo ascendente (item 7), até então só descrito, nunca
+  implementado. Na sequência, o Thiago pediu explicitamente mais 3 degraus:
+  30m↔12h ("o fundo ascendente no 12H ocorre normalmente quando o 30 min
+  entra em sobrevenda") e 2h↔2D ("o fundo ascendente do 2D ocorre quando o
+  2h entra em nível de sobrevenda no RSI"), junto com suporte a 12H/2D como
+  tempos gráficos observados pelo bot. **✅ IMPLEMENTADOS no mesmo dia**: o
+  `check_retest_4h` original foi generalizado num núcleo único
+  (`_check_retest_ladder`), com 4 degraus agora ativos —
+  `check_retest_4h` (4h↔semanal), `check_retest_15m` (15m↔4h, motivado pelo
+  comentário do Diego), `check_retest_30m` (30m↔12h) e `check_retest_2h`
+  (2h↔2D), todos plugados em `analyze_symbol` e `build_symbol_deep_dive`.
+  Suporte de tempo gráfico estendido na Bybit (30m/2h/12h nativos) e a
+  agregação sintética de 3D generalizada pra também servir o 2D
+  (`_fetch_klines_dias_agregados`, parametrizada por número de dias). Um
+  teste com múltiplos tempos gráficos e sementes fixas de aleatoriedade
+  revelou um caso real de inconsistência ainda não coberto pelo filtro de
+  qualidade — um sinal de reteste podia disparar com o preço já do lado
+  errado do nível tocado originalmente (ex.: compra com o preço já abaixo
+  do fundo), produzindo internamente `stop > entrada`; corrigido com uma
+  checagem de lado explícita em `_check_retest_ladder`, sem afetar o
+  comportamento do degrau original (4h↔semanal), que segue idêntico.
+  Suíte completa re-rodada sem regressões (23 arquivos).
+- 21/09/2026 (mesmo dia, sessão seguinte): o Thiago pediu que, sempre que o
+  BTC cair e o petróleo subir ao mesmo tempo, o bot busque notícia de
+  contexto sobre a guerra — pedido feito logo depois de ele relatar rumores
+  de escalada (ataques dos EUA no Irã, Houthis atacando aeroporto na
+  Arábia Saudita, Arábia Saudita saindo do mBridge chinês), a maior parte
+  confirmada por pesquisa externa na hora. **✅ IMPLEMENTADO no mesmo dia**:
+  `detect_queda_btc_alta_petroleo` dispara quando o retorno de 1 dia do BTC
+  cai pelo menos 0,5% e o do petróleo (`CLUSDT`) sobe pelo menos o mesmo
+  tanto (mesmo `pct_return` já usado noutros pontos do bot); quando
+  dispara, `fetch_war_news_headlines` busca manchetes no NewsAPI.org por
+  palavras-chave de guerra (Irã/Israel/Houthis/Arábia Saudita/Iêmen), e
+  `build_war_news_context_texto` traduz e formata o texto, anexado ao
+  status core de hora em hora — não é sinal de trade, é só contexto.
+  Reaproveita a mesma chave `NEWS_API_KEY` já usada no fallback de
+  manchetes da Reuters. Teste novo cobrindo a lógica de disparo (incluindo
+  o limite exato e candles insuficientes) e o fetch/formatação com mock do
+  NewsAPI; suíte completa re-rodada sem regressões (24 arquivos).
+- Também em 21/09/2026: o Thiago descreveu, com as próprias palavras, uma
+  reformulação "de cima pra baixo" da escada de fundo ascendente (se um
+  tempo gráfico menor perde o último fundo, é sinal de que algum tempo
+  gráfico maior ainda está procurando a própria base) e perguntou se o
+  Diego já tinha comentado isso em algum vídeo processado. Resposta
+  honesta depois de checar as 9 lives já processadas: essa formulação
+  específica **não** foi encontrada atribuída ao Diego — é uma
+  reformulação do próprio Thiago em cima do item 7, que já vinha só do
+  Thiago desde 15/09. O mais próximo que o Diego de fato diz nos vídeos é
+  o princípio de alinhamento de tendência multi-tempo-gráfico (ver item
+  "Tendência em 3 tempos gráficos" no README, `detect_market_trend`).
+  Guardada no item 7 como candidato futuro (diagnóstico de "qual tempo
+  gráfico está buscando sua base agora"), ainda não implementado.

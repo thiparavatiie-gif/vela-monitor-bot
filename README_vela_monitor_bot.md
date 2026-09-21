@@ -62,7 +62,10 @@ Arquivos deste pacote:
    - `NEWS_API_KEY` (opcional) = uma chave gratuita de
      [newsapi.org](https://newsapi.org/register) (cadastro grátis, plano
      "Developer"). Sem esse secret, o bot funciona normalmente — só não
-     manda as manchetes da Reuters quando não acha nenhum setup na hora.
+     manda as manchetes da Reuters quando não acha nenhum setup na hora, e
+     não busca contexto de notícia quando o BTC cai com o petróleo subindo
+     (ver seção "Contexto de guerra..." mais abaixo) — os dois recursos
+     usam a mesma chave.
    - `CMC_API_KEY` (opcional) = uma chave gratuita de
      [coinmarketcap.com/api](https://coinmarketcap.com/api/) (cadastro
      grátis, plano "Basic"). Usada só no relatório categorizado (ver
@@ -389,42 +392,75 @@ vela enquanto o RSI continua esticado no mesmo movimento:
 Os três passam pelos mesmos filtros de qualidade de todo sinal (risco/
 retorno mínimo de 1:2 e tendência majoritária do mercado).
 
-## Reteste após o 1º toque de RSI no 4h (`check_retest_4h`)
+## Escada de fundo ascendente: reteste após o 1º toque de RSI (`_check_retest_ladder`)
 
-Segunda etapa do sinal de 4h acima, pensada pra a ideia de "escada de fundo
-ascendente": cada tempo gráfico maior tende a formar sua própria base
-quando o tempo gráfico imediatamente abaixo dele entra em sobrevenda/
-sobrecompra (ex.: base no semanal quando o 4h entra em sobrevenda, base no
-diário quando o 1h entra em sobrevenda, e assim por diante). Depois do
-primeiro toque de RSI no 4h, o preço costuma dar um repique de verdade
-(pelo menos 3% de distância do fundo/topo, pra não confundir com ruído) e
-depois voltar pra **retestar** aquele fundo/topo específico. Se segurar
-ali sem romper — é isso que o sinal detecta — pode ser a base de um fundo/
-topo ascendente/descendente maior, no semanal.
+Pensado pra a ideia de "escada de fundo ascendente": cada tempo gráfico
+maior tende a formar sua própria base quando o tempo gráfico imediatamente
+abaixo dele entra em sobrevenda/sobrecompra (ex.: base no semanal quando o
+4h entra em sobrevenda, base no 12h quando o 30m entra em sobrevenda, base
+no 2D quando o 2h entra em sobrevenda, e assim por diante). Depois do
+primeiro toque de RSI no tempo gráfico menor, o preço costuma dar um
+repique de verdade (pelo menos 3% de distância do fundo/topo, pra não
+confundir com ruído) e depois voltar pra **retestar** aquele fundo/topo
+específico. Se segurar ali sem romper — é isso que o sinal detecta — pode
+ser a base de um fundo/topo ascendente/descendente maior, no tempo gráfico
+de cima.
 
-Como funciona na prática:
-- Guarda o fundo (compra) ou topo (venda) da vela onde o RSI de 4h fez o
-  primeiro toque, procurando até `RETEST_4H_LOOKBACK` velas pra trás (~10
-  dias).
+A lógica é uma só, num núcleo genérico (`_check_retest_ladder`), reaproveitado
+por quatro "degraus" da escada — cada um só troca o par de tempos gráficos e
+os limiares de RSI:
+
+| Degrau | Tempo gráfico menor (toque de RSI) | Tempo gráfico maior (confluência/alvo 2) | Função | Origem do pedido |
+|---|---|---|---|---|
+| 1 | 4h | Semanal | `check_retest_4h` | pedido original do Thiago |
+| 2 | 15m | 4h | `check_retest_15m` | comentário do Diego no grupo (21/09/2026): correção no 4h liberando entradas no 15m em sobrevenda |
+| 3 | 30m | 12h | `check_retest_30m` | pedido do Thiago (21/09/2026): "fundo ascendente no 12H ocorre quando o 30 min entra em sobrevenda" |
+| 4 | 2h | 2D | `check_retest_2h` | pedido do Thiago (21/09/2026): "fundo ascendente do 2D ocorre quando o 2h entra em sobrevenda" |
+
+Como funciona na prática (igual pros 4 degraus, só troca o tempo gráfico):
+- Guarda o fundo (compra) ou topo (venda) da vela onde o RSI do tempo
+  gráfico menor fez o primeiro toque, procurando pra trás até o lookback
+  daquele degrau (`RETEST_4H_LOOKBACK`, `RETEST_15M_LOOKBACK`,
+  `RETEST_30M_LOOKBACK`, `RETEST_2H_LOOKBACK` — cada um calibrado pra cobrir
+  uma janela de tempo real parecida, não o mesmo número de velas).
 - Só considera reteste de verdade depois de confirmar o repique
-  (`RETEST_4H_MIN_BOUNCE_PCT`, 3%) — sem isso, ainda pode ser só o próprio
-  movimento de queda/alta original, não uma volta de verdade.
+  (`RETEST_4H_MIN_BOUNCE_PCT`, 3%, mesmo valor reaproveitado pelos 4
+  degraus) — sem isso, ainda pode ser só o próprio movimento de queda/alta
+  original, não uma volta de verdade.
 - Preço precisa estar a no máximo `RETEST_4H_ZONE_TOLERANCE` (2%) do nível
-  original pra contar como reteste.
+  original pra contar como reteste, e **do lado certo** do nível (numa
+  compra, não dispara se o preço já rompeu abaixo do fundo original; numa
+  venda, não dispara se já rompeu acima do topo original) — essa checagem
+  extra foi acrescentada depois de um teste com múltiplos tempos gráficos
+  revelar que sem ela dava pra gerar, em cenários bem específicos, um sinal
+  de compra com o stop acima da entrada (inconsistência que o filtro de
+  qualidade normal não pegava, porque olhava só stop x alvo, não stop x
+  reteste).
 - **Stop**: logo além (0.5% de margem) do próprio fundo/topo da vela do
   toque original — é a referência mais natural de invalidação: se romper
   ali, o cenário de base muda de verdade.
-- **Alvo 1**: o pivô técnico mais próximo no 4h, na direção do sinal.
-- **Alvo 2 (quando dá pra calcular)**: quando o script tem os candles
-  semanais disponíveis, soma um segundo alvo mais ambicioso mirando o
-  próximo pivô do **semanal** além do alvo 1 — o tipo de "se romper o
-  primeiro alvo, o próximo é o topo/fundo maior lá no semanal".
-- **Fatores extra de confluência semanal (opcionais, não obrigatórios)**:
-  quando o preço também está perto da EMA12 no semanal e/ou perto da zona
-  de Fibonacci 0.382 da última perna semanal, o sinal menciona isso como
-  reforço — é o cenário descrito como "ideal" (RSI do 4h em sobrevenda +
-  reteste + encostando na EMA12 semanal + perto do 0.382 do último
-  impulso), mas o sinal já dispara mesmo sem esses extras.
+- **Alvo 1**: o pivô técnico mais próximo no tempo gráfico menor, na
+  direção do sinal.
+- **Alvo 2 (quando dá pra calcular)**: quando o script tem os candles do
+  tempo gráfico maior disponíveis, soma um segundo alvo mais ambicioso
+  mirando o próximo pivô **dele** além do alvo 1 — o tipo de "se romper o
+  primeiro alvo, o próximo é o topo/fundo maior lá em cima".
+- **Fatores extra de confluência (opcionais, não obrigatórios)**: quando o
+  preço também está perto da EMA12 no tempo gráfico maior e/ou perto da
+  zona de Fibonacci 0.382 da última perna dele, o sinal menciona isso como
+  reforço — é o cenário descrito como "ideal", mas o sinal já dispara mesmo
+  sem esses extras.
+
+### Novos tempos gráficos na Bybit (30m, 2h, 12h, 2D)
+
+Pra sustentar os degraus 3 e 4 da escada, o bot passou a buscar candles
+também em `30m`, `2h` e `12h` direto da Bybit (`_BYBIT_INTERVAL_MAP`
+estendido com os códigos nativos `30`, `120` e `720`). O `2D` não existe
+como intervalo nativo na Bybit (só D/W/M) — por isso `fetch_klines(...,
+"2d", ...)` reaproveita a mesma agregação sintética já usada pro `3D`
+(`_fetch_klines_dias_agregados`, generalizada pra aceitar 2 ou 3 dias por
+candle), agrupando candles diários de 2 em 2 (open do primeiro, close do
+último, máxima/mínima/volume agregados do grupo).
 
 ## Classificador de bandeira de alta/baixa via Fibonacci + volume (`classifica_bandeira`)
 
@@ -524,6 +560,28 @@ a do Diego), o sinal sempre vem com um aviso de que vale conferir
 visualmente — a simetria real dos ombros pode variar mais do que o
 algoritmo capta.
 
+### Diagnóstico "em formação" (`diagnose_oco_pattern`)
+
+Motivado pela análise de uma operação real do robô do Diego em MANTA
+(19/09/2026): o gráfico de 4h mostrava uma projeção desenhada à mão do
+ombro 2 e do pescoço ainda por vir, mas o bot ficava mudo nesse cenário —
+`check_oco_pattern` só avisa depois do pescoço já ter rompido.
+
+`diagnose_oco_pattern` cobre dois estágios "quase lá" (mesmo espírito do
+diagnóstico de confluência multi-indicador, mais abaixo):
+
+1. Os 3 pivôs (ombro 1, cabeça, ombro 2) já estão todos confirmados, mas o
+   pescoço ainda não rompeu — falta só o rompimento.
+2. Só ombro 1 e cabeça são pivôs confirmados; o preço, depois da cabeça, já
+   recuperou de volta pra dentro da faixa onde o ombro 2 precisaria se
+   formar (sem fazer fundo/topo novo além da cabeça) — o ombro 2 em si
+   ainda não é um pivô confirmado.
+
+Em ambos os casos só dispara quando o preço já está a até 8%
+(`OCO_DIAG_MAX_NECKLINE_DIST_PCT`) do nível do pescoço — longe demais do
+pescoço não vale a pena avisar ainda. Roda tanto no fluxo normal
+(`analyze_symbol`) quanto na análise detalhada por moeda.
+
 ## Cruzamento de EMA no semanal (`check_weekly_ema_cross`)
 
 Sinal de **contexto** (sem entrada/stop/alvo — não tem um nível técnico
@@ -605,6 +663,61 @@ mínima). Se a consolidação já dura bem mais que o mínimo, o título vira
 oposta — proporcional ao tempo extra lateralizado, com um teto
 (`RANGE_BREAKOUT_EXTENSION_CAP`) pra não virar um alvo fantasioso numa
 consolidação muito longa.
+
+## EMA200 diária como referência de alvo (`adiciona_referencia_ema200_diaria`)
+
+Motivado pela mesma análise de MANTA: o robô do Diego lista "0,073–0,075 —
+região da EMA 200 diária" como um dos alvos em sequência — um uso
+explícito de EMA como nível de alvo projetado, diferente do que o bot
+fazia até então (EMA só como filtro de tendência/contexto no checklist,
+nunca como referência de preço-alvo).
+
+Depois que qualquer sinal COMPRAR/VENDER calcula sua entrada e seu alvo
+técnico normalmente, `adiciona_referencia_ema200_diaria` checa se a EMA200
+diária cai entre os dois — e, se cair, acrescenta uma linha extra em
+`detalhes` citando ela como referência intermediária ("nível técnico entre
+a entrada e o alvo, costuma reagir antes de o preço continuar"). Não muda
+o alvo/stop calculado, não é um novo critério de entrada — só enriquece o
+texto quando faz sentido.
+
+Efeito colateral técnico: os candles diários buscados por `analyze_symbol`
+e `build_symbol_deep_dive` passaram de 200 pra `MARKET_TREND_EMA_SLOW + 20`
+(220) — com exatamente 200 candles o cálculo de EMA200 virava só a média
+simples da janela inteira (sem nenhuma iteração de convergência
+exponencial de verdade), mesmo ajuste de folga que `detect_market_trend`
+já usa pro BTC.
+
+## Contexto de guerra quando BTC cai e petróleo sobe (`build_war_news_context_texto`)
+
+Pedido do Thiago em 21/09/2026, durante a guerra EUA/Israel-Irã e os
+ataques dos Houthis à Arábia Saudita: "sempre que o BTC cair e o petróleo
+subir, pode buscar alguma notícia da guerra". BTC caindo com o petróleo
+(`CLUSDT`) subindo ao mesmo tempo é o padrão clássico de fuga de ativo de
+risco somado a petróleo reagindo a tensão no Oriente Médio — quando os
+dois batem junto, o bot busca manchetes de contexto em vez de só mostrar o
+preço caindo sem explicação.
+
+Como funciona:
+- A cada rodada que monta o status core, calcula o retorno de 1 dia
+  (`BTC_OIL_DIVERGENCE_LOOKBACK_DAYS`) do BTC e do petróleo com o mesmo
+  `pct_return()` já usado em outros lugares do bot.
+- `detect_queda_btc_alta_petroleo` dispara quando o BTC caiu pelo menos
+  `BTC_OIL_DIVERGENCE_MIN_PCT` (0.5%) **e** o petróleo subiu pelo menos o
+  mesmo tanto, na mesma janela — os dois lados precisam bater juntos, não
+  só um.
+- Quando dispara, `fetch_war_news_headlines` busca no NewsAPI.org (mesma
+  chave `NEWS_API_KEY` já usada nas manchetes de fallback da Reuters) por
+  `WAR_NEWS_QUERY` — palavras-chave de Irã/Israel/Houthis/Arábia
+  Saudita/Iêmen cruzadas com guerra/ataque/míssil/conflito — em vez de
+  filtrar por domínio.
+- `build_war_news_context_texto` traduz título e resumo de cada manchete
+  (mesma tradução gratuita via MyMemory já usada no fallback) e monta um
+  texto com cabeçalho citando os dois retornos, que é anexado ao final do
+  **status core** (o que já manda toda hora cheia) — não é um sinal de
+  trade novo, é só contexto informativo.
+- Sem `NEWS_API_KEY` configurada, ou se a busca não trouxer nada, ou se
+  falhar por qualquer motivo, simplesmente não anexa nada — o status core
+  segue normal, sem quebrar a varredura.
 
 ## Mensagens mais diretas: checklist, alvo e sem duplicidade
 
