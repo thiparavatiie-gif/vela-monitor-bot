@@ -407,24 +407,34 @@ ser a base de um fundo/topo ascendente/descendente maior, no tempo gráfico
 de cima.
 
 A lógica é uma só, num núcleo genérico (`_check_retest_ladder`), reaproveitado
-por quatro "degraus" da escada — cada um só troca o par de tempos gráficos e
+por sete "degraus" da escada — cada um só troca o par de tempos gráficos e
 os limiares de RSI:
 
 | Degrau | Tempo gráfico menor (toque de RSI) | Tempo gráfico maior (confluência/alvo 2) | Função | Origem do pedido |
 |---|---|---|---|---|
-| 1 | 4h | Semanal | `check_retest_4h` | pedido original do Thiago |
+| 1 | 5m | 1h | `check_retest_5m` | completando a escada (22/09/2026) — faltava esse degrau, só existia o sinal de 1º toque sem reteste (`check_scalp_5m`) |
 | 2 | 15m | 4h | `check_retest_15m` | comentário do Diego no grupo (21/09/2026): correção no 4h liberando entradas no 15m em sobrevenda |
 | 3 | 30m | 12h | `check_retest_30m` | pedido do Thiago (21/09/2026): "fundo ascendente no 12H ocorre quando o 30 min entra em sobrevenda" |
-| 4 | 2h | 2D | `check_retest_2h` | pedido do Thiago (21/09/2026): "fundo ascendente do 2D ocorre quando o 2h entra em sobrevenda" |
+| 4 | 1h | 1D | `check_retest_1h` | completando a escada (22/09/2026) |
+| 5 | 2h | 2D | `check_retest_2h` | pedido do Thiago (21/09/2026): "fundo ascendente do 2D ocorre quando o 2h entra em sobrevenda" |
+| 6 | 4h | Semanal | `check_retest_4h` | pedido original do Thiago |
+| 7 | 1D | Mensal | `check_retest_1d` | completando a escada (22/09/2026) |
 
-Como funciona na prática (igual pros 4 degraus, só troca o tempo gráfico):
+Os degraus 1, 4 e 7 (5m↔1h, 1h↔1D, 1D↔mensal) foram implementados juntos em
+22/09/2026 depois de uma checagem revelar que faltavam 3 degraus, não 2 como
+uma nota anterior do projeto tinha registrado por engano — a escada
+completa cobre agora todo o encadeamento de tempos gráficos, do scalp de 5m
+até o mensal.
+
+Como funciona na prática (igual pros 7 degraus, só troca o tempo gráfico):
 - Guarda o fundo (compra) ou topo (venda) da vela onde o RSI do tempo
   gráfico menor fez o primeiro toque, procurando pra trás até o lookback
-  daquele degrau (`RETEST_4H_LOOKBACK`, `RETEST_15M_LOOKBACK`,
-  `RETEST_30M_LOOKBACK`, `RETEST_2H_LOOKBACK` — cada um calibrado pra cobrir
+  daquele degrau (`RETEST_5M_LOOKBACK`, `RETEST_4H_LOOKBACK`,
+  `RETEST_15M_LOOKBACK`, `RETEST_30M_LOOKBACK`, `RETEST_1H_LOOKBACK`,
+  `RETEST_2H_LOOKBACK`, `RETEST_1D_LOOKBACK` — cada um calibrado pra cobrir
   uma janela de tempo real parecida, não o mesmo número de velas).
 - Só considera reteste de verdade depois de confirmar o repique
-  (`RETEST_4H_MIN_BOUNCE_PCT`, 3%, mesmo valor reaproveitado pelos 4
+  (`RETEST_4H_MIN_BOUNCE_PCT`, 3%, mesmo valor reaproveitado pelos 7
   degraus) — sem isso, ainda pode ser só o próprio movimento de queda/alta
   original, não uma volta de verdade.
 - Preço precisa estar a no máximo `RETEST_4H_ZONE_TOLERANCE` (2%) do nível
@@ -986,6 +996,146 @@ mesmas regras dos sinais — o script não chama nenhum modelo de IA pra gerar
 opinião, é a aplicação mecânica das regras, só que explicada em texto. E o
 setup que faz mais sentido muda junto com o cenário de mercado — não é uma
 recomendação fixa.
+
+## Reteste de nível horizontal rompido (`check_retest_broken_level`)
+
+Item 3 das notas de live: "reteste de nível rompido" genérico — resistência
+que virou suporte, ou suporte que virou resistência — diferente da escada de
+fundo ascendente acima (que exige um toque de RSI extremo antes de contar) e
+do rompimento de linha de tendência diagonal (`check_trendline_breakout`,
+que é uma reta, não um nível horizontal).
+
+Depois que um pivô horizontal é rompido de forma decisiva (fechamento a
+pelo menos `RETEST_BROKEN_LEVEL_MIN_BREAK_PCT`, 1,5%, além dele) e segura do
+lado novo por pelo menos `RETEST_BROKEN_LEVEL_MIN_HOLD_CANDLES` (2) candles
+sem fechar de volta do lado antigo, o preço costuma voltar pra retestar
+aquele nível exato. Se segurar ali (reteste sem romper de novo, dentro de
+`RETEST_BROKEN_LEVEL_ZONE_TOLERANCE`, 1,5%), é ponto de entrada com stop
+natural logo além do nível. Roda no 4h.
+
+## Alerta de exaustão cruzado com os outros sinais (`adiciona_alerta_exaustao`)
+
+Item 5 das notas de live: em vez de tratar o clímax de exaustão (RSI de 4h
+esticado + volume) como um sinal isolado, o bot agora cruza essa leitura com
+**qualquer** outro sinal de compra/venda que dispare junto. Quando o RSI de
+4h já está esticado perto (ou dentro) da zona de exaustão na direção
+contrária ao sinal, a força que sustentaria esse sinal pode estar perto de
+se esgotar — o bot acrescenta uma linha de alerta reduzindo a convicção
+(⚠️), sem mudar a ação/entrada/stop/alvo do sinal original. Reaproveita os
+mesmos limiares do clímax (`CLIMAX_RSI_HIGH`/`CLIMAX_RSI_LOW`,
+`EXHAUSTION_DIAG_RSI_BAND`, `CLIMAX_VOLUME_RATIO`).
+
+## Diagnóstico "de cima pra baixo" (`diagnose_fundo_descendente_busca_base`)
+
+Item 7 das notas de live, reformulação do próprio Thiago (21/09/2026): "em
+tendência de alta as melhores entradas são sempre em fundos ascendentes em
+tempos gráficos maiores — se os tempos gráficos menores perderem o último
+fundo, realizando um fundo descendente, é porque em algum tempo gráfico
+maior está procurando por sua base". Reaproveita o mesmo mapeamento
+menor→maior da escada de fundo ascendente, só que olhando o sintoma
+inverso: em vez de um toque de RSI extremo confirmando a base do tempo
+maior, é a estrutura **quebrando** no tempo menor (fundo mais baixo que o
+pivô anterior) que aponta pra onde olhar. Não é sinal de entrada — é um
+diagnóstico de contexto (mesmo formato dos outros `diagnose_*`), rodando
+sobre 4h, 15m, 1h e 1D.
+
+## Screener de moedas atrasadas (`rank_moedas_atrasadas`)
+
+Item 16 das notas de live — espelho do ranking de força relativa (item 13,
+`rank_relative_weakness_vs_btc`) pro lado comprado: em vez de achar moedas
+mais fracas que o BTC (candidatas a short), acha moedas que subiram
+**menos** que a média do grupo de altcoins do watchlist — candidatas a
+"atrasada", ainda com espaço pra correr por rotação de capital. Mesma ideia
+de uma operação real do robô do Diego em MANTA (19/09/2026), onde ele
+chamou a moeda de "atrasada em relação a várias outras que já tiveram
+movimentos mais fortes" como parte da tese de compra.
+
+Só dispara durante tendência de alta confirmada — sugerir "atrasada" num
+mercado de baixa não tem o mesmo racional (não tem rotação de capital
+acontecendo). Mostra até `ATRASADAS_TOP_N` (5) moedas com pelo menos
+`ATRASADAS_MIN_DIFF_PP` (3 pontos percentuais) abaixo da média do grupo.
+Sinal de contexto/screener (`acao: "OBSERVAR"`).
+
+## Cunha descendente/ascendente (`check_wedge_pattern`)
+
+Item 17a das notas de live, motivado por uma operação real do robô do Diego
+em VIRTUAL (22/09/2026): "na base de uma cunha descendente" no par contra o
+BTC. Diferente do LTB/LTA (`check_trendline_breakout`, uma reta só contra
+uma faixa horizontal implícita), a cunha exige **duas** retas — topo e
+fundo — inclinando no **mesmo** sentido e convergindo uma pra outra:
+
+- **Cunha descendente** (as duas retas caem): padrão de continuação de
+  alta/reversão de baixa — rompimento esperado pra cima, através da reta
+  superior. Dispara `COMPRAR`.
+- **Cunha ascendente** (as duas retas sobem): o espelho — rompimento
+  esperado pra baixo, através da reta inferior. Dispara `VENDER`.
+
+Só dispara no primeiro rompimento decisivo da reta do lado esperado, e só
+se as duas retas realmente **convergirem** — a distância entre elas precisa
+encolher pelo menos `WEDGE_MIN_CONVERGENCE_PCT` (35%) do início pro fim do
+trecho comum, senão é só um canal paralelo, não uma cunha de verdade.
+Reaproveita os mesmos limiares de toque/rompimento/stop do LTB/LTA. Roda no
+4h.
+
+## Aviso antecipado de rotação BTC → altcoins (`check_rotacao_antecipada_dominancia`)
+
+Item 17b das notas de live, motivado pela mesma operação em VIRTUAL que deu
+origem à cunha acima: a tese de compra citava a exaustão do próprio BTC
+como parte do racional de rotação de capital pra altcoins — **antes** de
+isso aparecer nos retornos dos últimos dias. O sinal de dominância/
+altseason (`check_dominance_altseason`) é reativo: só dispara depois que a
+divergência de retorno BTC x alts já apareceu nos últimos
+`DOMINANCE_LOOKBACK_DAYS` dias. Esse aqui tenta antecipar um passo:
+
+- Cruza a exaustão do **próprio BTC** no 4h (RSI perto/dentro da zona de
+  clímax de topo, mesmos limiares do clímax de exaustão) com o cenário de a
+  divergência de dominância **ainda não** ter aparecido nos retornos — se já
+  tivesse aparecido, o sinal reativo já teria disparado sozinho, e esse
+  ficaria redundante (por isso só dispara quando o reativo não dispararia).
+- Sinal de contexto/screener (`acao: "OBSERVAR"`), calculado uma vez por
+  rodada de varredura completa, reaproveitando o mesmo RSI de 4h do BTC já
+  buscado pro leitor de regime (item 9).
+
+## Rompimento de máxima de período com volume (`check_breakout_maxima_periodo_volume`)
+
+Candidato solto guardado desde 17/09/2026, de um sinal real de texto do
+robô do Diego em ETH: "rompeu a máxima do ano... céu aberto, líder do ciclo
+confirmado", com volume de confirmação bem acima da média e stop no suporte
+do pullback que segurou. Padrão distinto do resto do bot: não é reteste de
+nível (item 3 acima) nem rompimento de linha diagonal — é o rompimento
+imediato da **máxima de todo o período olhado** (não um nível qualquer de
+pivô), com volume como confirmação central.
+
+Usa candles **diários**, olhando os últimos `BREAKOUT_MAXIMA_LOOKBACK_DIAS`
+(365, ~52 semanas/1 ano):
+
+- Só dispara no primeiro fechamento que rompe de forma decisiva
+  (`BREAKOUT_MAXIMA_MIN_BREAK_PCT`, 1%) a máxima do período.
+- Exige volume da vela de rompimento pelo menos `BREAKOUT_MAXIMA_VOLUME_RATIO`
+  (1,8x) a média do período — sem volume, o rompimento não conta.
+- **Stop**: no pivô de fundo mais recente antes do rompimento (o "suporte
+  do pullback que segurou" citado no sinal original).
+- **Alvos**: projetados por distância medida (altura do pullback até a
+  máxima rompida, projetada a partir do ponto de rompimento, com uma 2ª
+  extensão em 1,618x) — por definição não existe resistência histórica real
+  acima de uma nova máxima de período.
+
+Só cobre o lado de compra (rompimento de máxima) — é exatamente o padrão do
+sinal original que motivou o candidato; um espelho pro lado de venda
+(rompimento de mínima de período) ficaria especulativo sem um exemplo real
+equivalente pra validar.
+
+### Candidato avaliado e não implementado: cruzar sinais com calendário macro
+
+O mesmo sinal de ETH acima veio junto com um alerta de risco ligado a
+evento macro (reunião do Fed, opções concentradas num strike) — o bot não
+cruza nenhum sinal técnico com calendário de notícias/eventos macro
+(distinto do contexto de guerra BTC x petróleo, que é notícia, não
+calendário agendado). Avaliado e não implementado por falta de uma fonte de
+dados gratuita e confiável de calendário econômico (reuniões de Fed, CPI,
+etc.) que valesse a pena integrar — diferente do contexto de guerra, que
+usa a NewsAPI (já integrada por outro motivo). Fica documentado aqui como
+decisão consciente, não como lacuna esquecida.
 
 ## Aviso importante
 

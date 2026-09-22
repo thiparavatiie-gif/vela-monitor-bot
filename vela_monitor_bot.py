@@ -419,6 +419,10 @@ SCALP_30M_RSI_OVERSOLD = SCALP_RSI_OVERSOLD
 SCALP_30M_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT
 SCALP_2H_RSI_OVERSOLD = SCALP_RSI_OVERSOLD
 SCALP_2H_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT
+# Limiar do degrau diário (1M↔1D da escada, ver RETEST_1D_LOOKBACK abaixo) —
+# mesmo limiar clássico 30/70, sem ajuste específico relatado ainda.
+SCALP_1D_RSI_OVERSOLD = SCALP_RSI_OVERSOLD
+SCALP_1D_RSI_OVERBOUGHT = SCALP_RSI_OVERBOUGHT
 
 # --- Reteste do fundo/topo depois do 1º toque de RSI (SIGNAL 3b, "escada de
 # fundo ascendente" — depois do 1º toque em sobrevenda/sobrecompra num tempo
@@ -438,9 +442,29 @@ RETEST_4H_LOOKBACK = 60          # candles de 4h pra procurar o toque mais recen
 RETEST_15M_LOOKBACK = 288        # candles de 15m (~3 dias) — janela bem mais curta, é sobre a correção do momento
 RETEST_30M_LOOKBACK = 288        # candles de 30m (~6 dias)
 RETEST_2H_LOOKBACK = 180         # candles de 2h (~15 dias)
+# Degraus que faltavam da lista original de 5 (1M↔1D, 1semana↔4h, 1D↔1h,
+# 4h↔15m, 1h↔5m) — implementados em 22/09/2026, a pedido do Thiago
+# ("implementa tudo que falta"). Faltavam 3, não 2 como uma nota anterior
+# registrou por engano: 1h↔5m também nunca tinha sido implementado (só o
+# primeiro toque via `check_scalp_5m`, que é outro sinal).
+RETEST_5M_LOOKBACK = 576         # candles de 5m (~2 dias) — janela curta, é sobre a correção do momento (igual 15m/30m)
+RETEST_1H_LOOKBACK = 240         # candles de 1h (~10 dias)
+RETEST_1D_LOOKBACK = 120         # candles de 1D (~4 meses)
 RETEST_4H_MIN_BOUNCE_PCT = 0.03  # precisa ter se afastado pelo menos 3% do nível antes de voltar
 RETEST_4H_ZONE_TOLERANCE = 0.02  # até 2% de distância do nível original já conta como reteste
 RETEST_4H_STOP_BUFFER = 0.005    # stop um pouco além do fundo/topo original, não exatamente em cima
+
+# --- Reteste de nível horizontal rompido, genérico (item 3 das notas de
+# live) — resistência que virou suporte, ou suporte que virou resistência,
+# reaproveitando um pivô horizontal qualquer. DIFERENTE da escada de fundo
+# ascendente (que exige um toque de RSI extremo antes de contar) e do
+# LTB/LTA (que é uma reta DIAGONAL, não um nível horizontal). Implementado
+# em 22/09/2026, a pedido do Thiago ("implementa tudo que falta").
+RETEST_BROKEN_LEVEL_LOOKBACK = 90          # candles de 4h pra procurar o nível rompido (~15 dias)
+RETEST_BROKEN_LEVEL_MIN_BREAK_PCT = 0.015  # rompimento precisa fechar pelo menos 1.5% além do nível pra não ser ruído
+RETEST_BROKEN_LEVEL_ZONE_TOLERANCE = 0.015 # até 1.5% de distância do nível já conta como reteste
+RETEST_BROKEN_LEVEL_STOP_BUFFER = 0.005
+RETEST_BROKEN_LEVEL_MIN_HOLD_CANDLES = 2   # pelo menos 2 candles segurando do lado novo antes de considerar reteste válido
 
 # --- RSI de 4h esticado por muitos dias = leitor de regime bull/bear (item 9
 # das notas de live, confirmado em 4 lives diferentes: #7, #8, #9 e o vídeo
@@ -490,6 +514,28 @@ TRENDLINE_MIN_SLOPE_PCT = 0.0005   # inclinação mínima por vela, pra não con
 TRENDLINE_BREAK_BUFFER = 0.002     # margem além da linha pra contar como rompimento de verdade
 TRENDLINE_STOP_BUFFER = 0.005      # margem do stop além do pivô/linha de referência
 
+# --- Cunha descendente/ascendente (item 17 das notas de live) — DUAS retas
+# (topo e fundo) inclinando no MESMO sentido e convergindo, diferente do
+# LTB/LTA acima (uma reta só). Motivado por uma operação real do robô do
+# Diego em VIRTUAL (22/09/2026): "na base de uma cunha descendente" no par
+# contra o BTC. Reaproveita os mesmos limiares de toque/rompimento/stop do
+# LTB/LTA (`TRENDLINE_TOUCH_TOLERANCE`/`TRENDLINE_BREAK_BUFFER`/
+# `TRENDLINE_STOP_BUFFER`), só acrescenta o quanto as duas retas precisam
+# convergir pra contar como cunha de verdade (senão é só um canal paralelo).
+WEDGE_LOOKBACK = TRENDLINE_LOOKBACK
+WEDGE_MIN_CONVERGENCE_PCT = 0.35   # a distância entre as duas retas precisa encolher pelo menos 35% do início pro fim
+
+# --- Rompimento de máxima de período com volume (candidato solto, guardado
+# desde 17/09/2026) — de um sinal real de texto do robô do Diego em ETH
+# ("rompeu a máxima do ano... céu aberto, líder do ciclo confirmado", com
+# volume de confirmação bem acima da média e stop no suporte do pullback que
+# segurou). Usa candles DIÁRIOS — "máxima do ano/52 semanas" só faz sentido
+# em tempo gráfico grande.
+BREAKOUT_MAXIMA_LOOKBACK_DIAS = 365   # ~52 semanas/1 ano de candles diários
+BREAKOUT_MAXIMA_MIN_BREAK_PCT = 0.01  # rompimento decisivo, pelo menos 1% acima da máxima anterior
+BREAKOUT_MAXIMA_VOLUME_RATIO = 1.8    # volume da vela de rompimento vs a média do período
+BREAKOUT_MAXIMA_STOP_BUFFER = 0.01    # margem do stop além do suporte do pullback
+
 # --- Padrão Ombro-Cabeça-Ombro (OCO clássico = topo/reversão de baixa) e
 # invertido (OCOi = fundo/reversão de alta) ---
 # heurística baseada nos 3 últimos pivôs relevantes (ombro-cabeça-ombro) e
@@ -534,6 +580,15 @@ DOMINANCE_DIVERGENCE_PP = 6.0  # diferença mínima (pontos percentuais) pra ale
 # próprio BTC" (uma live) — reaproveita o mesmo retorno de DOMINANCE_LOOKBACK_DAYS ---
 RELATIVE_WEAKNESS_TOP_N = 5           # quantas moedas mais fracas mostrar no ranking
 RELATIVE_WEAKNESS_MIN_DIFF_PP = 3.0   # diferença mínima abaixo do retorno do BTC pra entrar no ranking
+
+# --- Screener de "moedas atrasadas" (item 16 das notas de live) — espelho do
+# ranking de força relativa acima, só que pro lado COMPRADO: em vez de achar
+# moedas mais fracas que o BTC (short), acha moedas que subiram menos que a
+# média do próprio grupo de altcoins do watchlist, candidatas a "ainda tem
+# espaço pra correr" por rotação de capital — mesma lógica de uma operação
+# real do robô do Diego em MANTA (19/09/2026). Implementado em 22/09/2026.
+ATRASADAS_TOP_N = 5
+ATRASADAS_MIN_DIFF_PP = 3.0   # diferença mínima abaixo da média do grupo pra contar como "atrasada"
 
 # --- Termômetro de fase de ciclo (mania de memecoin) — lista curada porque a
 # Bybit não classifica "memecoin" como categoria; pares que não existirem
@@ -1426,6 +1481,446 @@ def check_trendline_breakout(symbol, candles, timeframe_label="4h", pivot_len=PI
     return None
 
 
+def _find_nivel_rompido_segurando(pivots, candles, direcao, limite, min_break_pct,
+                                   min_hold_candles=RETEST_BROKEN_LEVEL_MIN_HOLD_CANDLES):
+    """
+    Varre os pivôs (mais recente primeiro) procurando o rompimento mais
+    recente de um nível horizontal que ainda está "segurando" do lado novo
+    — resistência que virou suporte (`direcao="alta"`) ou suporte que virou
+    resistência (`direcao="baixa"`). Devolve (idx_pivo, nivel, idx_rompimento)
+    do candidato mais recente que ainda vale, ou None.
+    """
+    n = len(candles)
+    closes = [c["close"] for c in candles]
+    candidatos = sorted((p for p in pivots if p[0] >= limite), key=lambda p: -p[0])
+    for idx_pivo, nivel in candidatos:
+        if nivel <= 0:
+            continue
+        idx_break = None
+        for i in range(idx_pivo + 1, n - 1):  # exclui a vela atual — ela é o possível reteste, não o rompimento
+            if direcao == "alta" and closes[i] > nivel * (1 + min_break_pct):
+                idx_break = i
+                break
+            if direcao == "baixa" and closes[i] < nivel * (1 - min_break_pct):
+                idx_break = i
+                break
+        if idx_break is None:
+            continue
+        if (n - 1) - idx_break < min_hold_candles:
+            continue  # rompimento recente demais, ainda não teve tempo de confirmar que segura
+        pos_break = closes[idx_break + 1:-1]  # do rompimento até a vela anterior, excluindo a atual
+        if direcao == "alta" and any(c < nivel for c in pos_break):
+            continue  # voltou a fechar abaixo do nível depois de romper — não segurou como suporte
+        if direcao == "baixa" and any(c > nivel for c in pos_break):
+            continue  # voltou a fechar acima do nível depois de romper — não segurou como resistência
+        return idx_pivo, nivel, idx_break
+    return None
+
+
+def check_retest_broken_level(symbol, candles, timeframe_label="4h", pivot_len=PIVOT_LEN,
+                               lookback=RETEST_BROKEN_LEVEL_LOOKBACK,
+                               min_break_pct=RETEST_BROKEN_LEVEL_MIN_BREAK_PCT,
+                               zone_tolerance=RETEST_BROKEN_LEVEL_ZONE_TOLERANCE,
+                               stop_buffer=RETEST_BROKEN_LEVEL_STOP_BUFFER):
+    """
+    Item 3 das notas de live: "reteste de nível rompido" genérico —
+    resistência que virou suporte, ou suporte que virou resistência,
+    reaproveitando um nível HORIZONTAL de pivô. Diferente da escada de
+    fundo ascendente (`_check_retest_ladder`, que exige um toque de RSI
+    extremo antes de contar) e do LTB/LTA (`check_trendline_breakout`, que
+    é uma reta DIAGONAL, não um nível horizontal).
+
+    Depois que um pivô é decisivamente rompido (fechamento a pelo menos
+    `min_break_pct` além dele) e segura do lado novo por pelo menos
+    `RETEST_BROKEN_LEVEL_MIN_HOLD_CANDLES` candles sem fechar de volta do
+    lado antigo, o preço costuma voltar pra retestar aquele nível exato —
+    se segurar ali (reteste sem romper de novo), é ponto de entrada com
+    stop natural logo além do nível.
+    """
+    n = len(candles)
+    min_candles = 2 * pivot_len + 15
+    if n < min_candles:
+        return None
+    price_now = candles[-1]["close"]
+    pivot_highs, pivot_lows = find_pivots(candles, pivot_len)
+    limite = max(0, n - lookback)
+
+    for direcao, pivots, acao in (("alta", pivot_highs, "COMPRAR"), ("baixa", pivot_lows, "VENDER")):
+        achado = _find_nivel_rompido_segurando(pivots, candles, direcao, limite, min_break_pct)
+        if achado is None:
+            continue
+        idx_pivo, nivel, idx_break = achado
+        dist = abs(price_now - nivel) / nivel
+        if dist > zone_tolerance:
+            continue
+        if direcao == "alta" and price_now < nivel:
+            continue  # já rompeu de volta pra baixo do nível — não é mais um reteste segurando
+        if direcao == "baixa" and price_now > nivel:
+            continue  # já rompeu de volta pra cima do nível
+
+        if acao == "COMPRAR":
+            candidatos_alvo = [p[1] for p in pivot_highs if p[0] > idx_pivo and p[1] > price_now]
+            alvo = min(candidatos_alvo) if candidatos_alvo else None
+            stop = avoid_round_number_stop(nivel * (1 - stop_buffer), "compra")
+        else:
+            candidatos_alvo = [p[1] for p in pivot_lows if p[0] > idx_pivo and p[1] < price_now]
+            alvo = max(candidatos_alvo) if candidatos_alvo else None
+            stop = avoid_round_number_stop(nivel * (1 + stop_buffer), "venda")
+        if alvo is None:
+            continue  # sem alvo técnico pra checar risco/retorno, não dá pra confirmar que vale a entrada
+
+        papel_antigo = "resistência" if direcao == "alta" else "suporte"
+        papel_novo = "suporte" if direcao == "alta" else "resistência"
+        tempo_desde_break = (n - 1) - idx_break
+
+        detalhes = [
+            f"Preço agora: {fmt_price(price_now)}",
+            f"Nível de {fmt_price(nivel)} era {papel_antigo}, rompido há {tempo_desde_break} vela(s) e virou {papel_novo}",
+            f"Preço voltou a retestar essa região agora ({dist * 100:.1f}% de distância)",
+            f"Stop sugerido: {fmt_price(stop)} (logo além do nível)",
+            f"Alvo técnico: {fmt_price(alvo)}",
+        ]
+        checklist = [
+            (f"Nível de {fmt_price(nivel)} rompido de forma decisiva (fechamento além dele)", True),
+            (f"Segurou como {papel_novo} desde o rompimento, sem fechar de volta do lado antigo", True),
+            ("Reteste atual sem romper de novo", True),
+        ]
+        explicacao = (
+            f"O {_fmt_symbol(symbol)} rompeu o nível de {fmt_price(nivel)} (antes {papel_antigo}) no "
+            f"{timeframe_label} e, desde então, segura do novo lado como {papel_novo}. Agora o preço "
+            f"voltou a retestar exatamente essa região sem romper de novo — reteste clássico de nível "
+            f"horizontal, com o próprio nível servindo de referência natural pro stop."
+        )
+        aviso = (
+            "Reteste ainda pode romper o nível de novo (voltando pro lado antigo) — se isso acontecer, "
+            "o cenário muda e o stop deveria ser respeitado."
+        )
+        return {
+            "symbol": symbol, "estilo": "SWING", "acao": acao,
+            "titulo": f"Reteste de nível rompido ({papel_antigo} virou {papel_novo}) no {timeframe_label}",
+            "timeframe": timeframe_label,
+            "detalhes": detalhes,
+            "checklist": checklist,
+            "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+            "resumo": f"Reteste do nível {fmt_price(nivel)} ({papel_antigo}→{papel_novo}) no {timeframe_label}.",
+            "explicacao": explicacao,
+            "aviso": aviso,
+        }
+    return None
+
+
+def _fit_channel_line(pivots, candles, lado, lookback):
+    """
+    Generalização do `_fit_trendline`: acha o par de pivôs (mais distante
+    entre si) que forma uma reta válida, SEM forçar o sentido da inclinação
+    (`_fit_trendline` exige topos descendentes pra LTB ou fundos ascendentes
+    pra LTA). Necessário pra cunha (item 17 das notas), onde as duas retas
+    — topo e fundo — podem inclinar no MESMO sentido (as duas caindo numa
+    cunha descendente, as duas subindo numa cunha ascendente).
+
+    `lado="superior"`: usa pivot_highs, valida que nenhuma vela no meio
+    ultrapassa a linha pelo HIGH (mesma validação de LTB).
+    `lado="inferior"`: usa pivot_lows, valida que nenhuma vela no meio
+    ultrapassa a linha pelo LOW (mesma validação de LTA).
+
+    Retorna (idx1, p1, idx2, p2, slope) da melhor linha achada (maior span
+    entre os dois pivôs-âncora), ou None. Aceita inclinação em qualquer
+    sentido (inclusive positiva no lado superior, ou negativa no lado
+    inferior) — quem decide se o resultado forma uma cunha de verdade é
+    `check_wedge_pattern`, comparando o sinal das duas retas.
+    """
+    n = len(candles)
+    limite = max(0, n - lookback)
+    pts = [p for p in pivots if p[0] >= limite]
+    if len(pts) < 2:
+        return None
+
+    melhor = None
+    melhor_span = -1
+    for i in range(len(pts)):
+        for j in range(i + 1, len(pts)):
+            idx1, p1 = pts[i]
+            idx2, p2 = pts[j]
+            span = idx2 - idx1
+            if span < TRENDLINE_MIN_SPAN:
+                continue
+            slope = (p2 - p1) / (idx2 - idx1)
+            if p1 <= 0 or abs(slope) / p1 < TRENDLINE_MIN_SLOPE_PCT:
+                continue  # inclinação fraca demais — não forma cunha, é lateralização
+
+            valido = True
+            for k in range(idx1 + 1, idx2):
+                linha_k = p1 + slope * (k - idx1)
+                if lado == "superior" and candles[k]["high"] > linha_k * (1 + TRENDLINE_TOUCH_TOLERANCE):
+                    valido = False
+                    break
+                if lado == "inferior" and candles[k]["low"] < linha_k * (1 - TRENDLINE_TOUCH_TOLERANCE):
+                    valido = False
+                    break
+            if valido and span > melhor_span:
+                melhor = (idx1, p1, idx2, p2, slope)
+                melhor_span = span
+    return melhor
+
+
+def check_wedge_pattern(symbol, candles, timeframe_label="4h", pivot_len=PIVOT_LEN, lookback=WEDGE_LOOKBACK):
+    """
+    Item 17 das notas de live: cunha (wedge) — DUAS retas (topo e fundo)
+    inclinando no MESMO sentido e convergindo uma pra outra, diferente do
+    LTB/LTA (`check_trendline_breakout`, uma reta só contra uma faixa
+    horizontal implícita). Motivado por uma operação real do robô do Diego
+    em VIRTUAL (22/09/2026): "na base de uma cunha descendente" no par
+    contra o BTC, esperando rompimento pra cima.
+
+    - Cunha descendente (as duas retas caem, topo mais inclinado que fundo
+      ou vice-versa, mas ambas negativas): padrão de CONTINUAÇÃO DE ALTA /
+      REVERSÃO DE BAIXA — rompimento esperado pra CIMA, através da reta
+      superior.
+    - Cunha ascendente (as duas retas sobem): padrão de CONTINUAÇÃO DE
+      BAIXA / REVERSÃO DE ALTA — rompimento esperado pra BAIXO, através da
+      reta inferior.
+
+    Só dispara no primeiro rompimento decisivo da reta do lado do
+    rompimento esperado, e só se as duas retas realmente CONVERGIREM
+    (a distância entre elas encolhe pelo menos `WEDGE_MIN_CONVERGENCE_PCT`
+    do início pro fim do trecho comum) — senão é só um canal paralelo, não
+    uma cunha.
+    """
+    n = len(candles)
+    if n < TRENDLINE_MIN_SPAN + 5:
+        return None
+    price_now = candles[-1]["close"]
+    price_prev = candles[-2]["close"] if n > 1 else None
+    if price_prev is None:
+        return None
+
+    pivot_highs, pivot_lows = find_pivots(candles, pivot_len)
+    linha_sup = _fit_channel_line(pivot_highs, candles, "superior", lookback)
+    linha_inf = _fit_channel_line(pivot_lows, candles, "inferior", lookback)
+    if linha_sup is None or linha_inf is None:
+        return None
+
+    idx1_s, p1_s, idx2_s, p2_s, slope_s = linha_sup
+    idx1_i, p1_i, idx2_i, p2_i, slope_i = linha_inf
+
+    # as duas retas precisam inclinar no mesmo sentido (as duas caindo ou
+    # as duas subindo) — se uma sobe e a outra desce, é um triângulo, não
+    # uma cunha
+    if slope_s == 0 or slope_i == 0 or (slope_s > 0) != (slope_i > 0):
+        return None
+    descendente = slope_s < 0  # ambas negativas -> cunha descendente
+
+    # trecho comum às duas retas, pra medir convergência de forma justa
+    idx_ini = max(idx1_s, idx1_i)
+    idx_fim = min(n - 1, max(idx2_s, idx2_i))
+    if idx_fim <= idx_ini:
+        return None
+    linha_sup_ini = p1_s + slope_s * (idx_ini - idx1_s)
+    linha_inf_ini = p1_i + slope_i * (idx_ini - idx1_i)
+    linha_sup_fim = p1_s + slope_s * (idx_fim - idx1_s)
+    linha_inf_fim = p1_i + slope_i * (idx_fim - idx1_i)
+    gap_ini = linha_sup_ini - linha_inf_ini
+    gap_fim = linha_sup_fim - linha_inf_fim
+    if gap_ini <= 0 or gap_fim <= 0:
+        return None  # as retas já se cruzaram — não é mais uma cunha válida
+    convergencia = 1 - (gap_fim / gap_ini)
+    if convergencia < WEDGE_MIN_CONVERGENCE_PCT:
+        return None  # praticamente um canal paralelo, não converge o suficiente
+
+    if descendente:
+        # cunha descendente -> espera rompimento pra CIMA da reta superior
+        linha_agora = p1_s + slope_s * (n - 1 - idx1_s)
+        linha_antes = p1_s + slope_s * (n - 2 - idx1_s)
+        buffer_ = linha_agora * TRENDLINE_BREAK_BUFFER
+        if not (price_prev <= linha_antes + buffer_ and price_now > linha_agora + buffer_):
+            return None
+        acao = "COMPRAR"
+        nome_padrao = "Cunha descendente"
+        ancora1, ancora2 = (idx1_s, p1_s), (idx2_s, p2_s)
+    else:
+        # cunha ascendente -> espera rompimento pra BAIXO da reta inferior
+        linha_agora = p1_i + slope_i * (n - 1 - idx1_i)
+        linha_antes = p1_i + slope_i * (n - 2 - idx1_i)
+        buffer_ = linha_agora * TRENDLINE_BREAK_BUFFER
+        if not (price_prev >= linha_antes - buffer_ and price_now < linha_agora - buffer_):
+            return None
+        acao = "VENDER"
+        nome_padrao = "Cunha ascendente"
+        ancora1, ancora2 = (idx1_i, p1_i), (idx2_i, p2_i)
+
+    idxa1, pa1 = ancora1
+    idxa2, pa2 = ancora2
+
+    if acao == "COMPRAR":
+        candidatos_alvo = [p[1] for p in pivot_highs if p[1] > price_now]
+        alvo = min(candidatos_alvo) if candidatos_alvo else None
+        candidatos_stop = [p[1] for p in pivot_lows if p[0] > idxa1]
+        nivel_stop = max(candidatos_stop) if candidatos_stop else min(pa1, pa2, linha_inf_fim)
+        stop = avoid_round_number_stop(nivel_stop * (1 - TRENDLINE_STOP_BUFFER), "compra")
+    else:
+        candidatos_alvo = [p[1] for p in pivot_lows if p[1] < price_now]
+        alvo = max(candidatos_alvo) if candidatos_alvo else None
+        candidatos_stop = [p[1] for p in pivot_highs if p[0] > idxa1]
+        nivel_stop = min(candidatos_stop) if candidatos_stop else max(pa1, pa2, linha_sup_fim)
+        stop = avoid_round_number_stop(nivel_stop * (1 + TRENDLINE_STOP_BUFFER), "venda")
+    if alvo is None:
+        return None  # sem alvo técnico pra checar risco/retorno
+
+    direcao_txt = "alta" if acao == "COMPRAR" else "baixa"
+    detalhes = [
+        f"Preço agora: {fmt_price(price_now)}",
+        f"{nome_padrao} formada entre {fmt_price(pa1)} e {fmt_price(pa2)}",
+        f"Convergência das duas retas: {convergencia * 100:.0f}% (mínimo exigido: {WEDGE_MIN_CONVERGENCE_PCT * 100:.0f}%)",
+        f"Nível da linha rompida nesta vela: {fmt_price(linha_agora)}",
+        f"Alvo técnico: {fmt_price(alvo)}",
+        f"Stop sugerido: {fmt_price(stop)}",
+    ]
+    checklist = [
+        ("Duas retas (topo e fundo) inclinando no mesmo sentido", True),
+        (f"Convergência real entre as retas (>= {WEDGE_MIN_CONVERGENCE_PCT * 100:.0f}%)", True),
+        ("Fechamento além da reta rompida nesta vela (primeiro rompimento)", True),
+    ]
+    explicacao = (
+        f"O {_fmt_symbol(symbol)} formou uma {nome_padrao.lower()} no {timeframe_label} — duas retas "
+        f"convergindo no mesmo sentido — e acabou de romper a reta que define o padrão. Cunhas costumam "
+        f"resolver contra a própria inclinação: {nome_padrao.lower()} tende a romper pra {direcao_txt}."
+    )
+    aviso = (
+        "Rompimento de cunha pode ser falso (o preço volta pra dentro do padrão) — vale esperar "
+        "confirmação nos candles seguintes antes de aumentar convicção."
+    )
+    return {
+        "symbol": symbol, "estilo": "SWING", "acao": acao,
+        "titulo": f"{nome_padrao} rompida no {timeframe_label}",
+        "timeframe": timeframe_label,
+        "detalhes": detalhes,
+        "checklist": checklist,
+        "entry_price": price_now, "target_price": alvo, "stop_price": stop,
+        "resumo": f"{nome_padrao} rompida em {fmt_price(linha_agora)} no {timeframe_label}.",
+        "explicacao": explicacao,
+        "aviso": aviso,
+    }
+
+
+def check_breakout_maxima_periodo_volume(symbol, candles_1d, pivot_len=PIVOT_LEN,
+                                          lookback=BREAKOUT_MAXIMA_LOOKBACK_DIAS,
+                                          min_break_pct=BREAKOUT_MAXIMA_MIN_BREAK_PCT,
+                                          volume_ratio_min=BREAKOUT_MAXIMA_VOLUME_RATIO,
+                                          stop_buffer=BREAKOUT_MAXIMA_STOP_BUFFER):
+    """
+    Candidato solto das notas de live: rompimento de máxima de período (ano/
+    52 semanas) com confirmação de volume — de um sinal real de texto do
+    robô do Diego em ETH ("rompeu a máxima do ano... céu aberto, líder do
+    ciclo confirmado", com volume de confirmação bem acima da média e stop
+    no suporte do pullback que segurou), guardado como candidato desde
+    17/09/2026. Padrão distinto do resto do bot: não é reteste de nível
+    (`check_retest_broken_level`) nem rompimento de linha diagonal
+    (`check_trendline_breakout`) — é o rompimento IMEDIATO da máxima de
+    TODO o período olhado (não um nível qualquer de pivô intermediário),
+    com volume como confirmação central: sem volume, o rompimento não
+    conta (mesmo espírito do clímax de exaustão, só que aplicado a uma
+    nova máxima em vez de uma reversão).
+
+    Usa candles DIÁRIOS — "máxima do ano/52 semanas" não faz sentido em
+    tempos gráficos menores. Só dispara no primeiro fechamento que rompe
+    de forma decisiva a máxima do período (excluindo a vela atual do
+    cálculo da máxima anterior), com o volume da vela de rompimento pelo
+    menos `volume_ratio_min`x a média do período. O stop vai no suporte do
+    pivô de fundo mais recente antes do rompimento — o mesmo "suporte do
+    pullback que segurou" citado no sinal original —, e os alvos são
+    projetados por distância medida (a mesma altura do pullback até a
+    máxima rompida, projetada a partir do ponto de rompimento, com uma
+    2ª extensão em 1.618x), já que por definição não existe resistência
+    histórica real acima de uma nova máxima de período.
+
+    Só cobre o lado de COMPRA (rompimento de máxima) — é exatamente o
+    padrão do sinal original que motivou o candidato; um espelho pro lado
+    de venda (rompimento de mínima de período) ficaria especulativo sem
+    um exemplo real equivalente pra validar.
+    """
+    n = len(candles_1d) if candles_1d else 0
+    min_candles = pivot_len * 2 + 30
+    if n < min_candles:
+        return None
+    price_now = candles_1d[-1]["close"]
+    price_prev = candles_1d[-2]["close"] if n > 1 else None
+    if price_prev is None:
+        return None
+
+    janela = candles_1d[-lookback:] if n > lookback else candles_1d
+    janela_sem_atual = janela[:-1]  # exclui a vela atual — ela é o possível rompimento, não faz parte da máxima "anterior"
+    if len(janela_sem_atual) < 10:
+        return None
+    maxima_periodo = max(c["high"] for c in janela_sem_atual)
+    if maxima_periodo <= 0:
+        return None
+
+    buffer_ = maxima_periodo * min_break_pct
+    if not (price_prev <= maxima_periodo + buffer_ and price_now > maxima_periodo + buffer_):
+        return None  # não é o primeiro rompimento decisivo da máxima do período
+
+    vol_now = candles_1d[-1]["volume"]
+    vols_periodo = [c["volume"] for c in janela_sem_atual]
+    vol_medio = (sum(vols_periodo) / len(vols_periodo)) if vols_periodo else None
+    if not vol_medio:
+        return None
+    vol_ratio = vol_now / vol_medio
+    if vol_ratio < volume_ratio_min:
+        return None  # rompeu a máxima, mas sem confirmação de volume -> rompimento fraco, não conta
+
+    _, pivot_lows = find_pivots(candles_1d, pivot_len)
+    limite_pullback = max(0, n - lookback)
+    candidatos_stop = [p for p in pivot_lows if limite_pullback <= p[0] < n - 1 and p[1] < maxima_periodo]
+    if not candidatos_stop:
+        return None  # sem pivô de suporte recente pra apoiar o stop, não dá pra montar o sinal com risco definido
+    idx_stop, nivel_stop = max(candidatos_stop, key=lambda p: p[0])  # pullback mais recente antes do rompimento
+
+    stop = avoid_round_number_stop(nivel_stop * (1 - stop_buffer), "compra")
+    altura = maxima_periodo - nivel_stop
+    if altura <= 0:
+        return None
+    alvos = [price_now + altura, price_now + altura * 1.618]
+
+    dias_periodo = len(janela_sem_atual)
+    detalhes = [
+        f"Preço agora: {fmt_price(price_now)}",
+        f"Máxima do período ({dias_periodo} dias): {fmt_price(maxima_periodo)}",
+        f"Volume da vela de rompimento: {vol_ratio:.1f}x a média do período",
+        f"Suporte do pullback que segurou (stop): {fmt_price(nivel_stop)}",
+        f"Alvos técnicos em sequência: {' > '.join(fmt_price(a) for a in alvos)}",
+    ]
+    checklist = [
+        (f"Fechamento além da máxima do período ({fmt_price(maxima_periodo)}), primeiro rompimento", True),
+        (f"Volume da vela de rompimento >= {volume_ratio_min:.1f}x a média do período", True),
+        ("Pullback anterior identificado como referência de stop", True),
+    ]
+    explicacao = (
+        f"O {_fmt_symbol(symbol)} rompeu a máxima dos últimos {dias_periodo} dias "
+        f"({fmt_price(maxima_periodo)}) com volume {vol_ratio:.1f}x acima da média do período — "
+        "rompimento de máxima de período com confirmação de volume costuma marcar o ativo como "
+        "'céu aberto' (sem resistência histórica recente acima), com o suporte do último pullback "
+        "servindo de referência natural pro stop e os alvos projetados pela mesma distância medida "
+        "do pullback até a máxima rompida."
+    )
+    aviso = (
+        "Sem resistência histórica acima da máxima rompida, os alvos aqui são projeções por "
+        "distância medida, não níveis técnicos reais — e rompimento de máxima também pode falhar "
+        "(o preço volta pra dentro do range antigo), então vale confirmar continuidade nos candles "
+        "seguintes antes de aumentar convicção."
+    )
+    return {
+        "symbol": symbol, "estilo": "SWING", "acao": "COMPRAR",
+        "titulo": f"Rompimento de máxima do período com volume ({dias_periodo}d)",
+        "timeframe": "1d",
+        "detalhes": detalhes,
+        "checklist": checklist,
+        "entry_price": price_now, "target_price": alvos[0], "target_prices": alvos, "stop_price": stop,
+        "resumo": f"Rompimento da máxima de {dias_periodo}d ({fmt_price(maxima_periodo)}) com volume {vol_ratio:.1f}x a média.",
+        "explicacao": explicacao,
+        "aviso": aviso,
+    }
+
+
 # ----------------------------------------------------------------------------
 # PADRÃO OMBRO-CABEÇA-OMBRO (OCO = topo/reversão de baixa) E INVERTIDO
 # (OCOi = fundo/reversão de alta)
@@ -2029,6 +2524,55 @@ def adiciona_referencia_ema200_diaria(sinais, candles_d):
     return sinais
 
 
+def adiciona_alerta_exaustao(sinais, candles_4h):
+    """
+    Item 5 das notas de live: cruza o sinal de exaustão (clímax de volume,
+    sinal 2) com os outros sinais de COMPRA/VENDA, em vez de tratá-los como
+    independentes — quando o RSI de 4h já está esticado perto (ou dentro)
+    da zona de exaustão de topo/fundo, a força que sustentaria um sinal na
+    mesma direção do movimento pode estar perto de se esgotar. Não muda a
+    ação/entrada/stop/alvo de nenhum sinal — só acrescenta uma linha de
+    alerta em `detalhes` reduzindo a convicção quando os dois batem junto.
+
+    Reaproveita os mesmos limiares do clímax de exaustão (`CLIMAX_RSI_HIGH`/
+    `CLIMAX_RSI_LOW`, `EXHAUSTION_DIAG_RSI_BAND`, `CLIMAX_VOLUME_RATIO`) —
+    a mesma banda que `diagnose_exhaustion` usa pra avisar "quase lá", só
+    que aqui cruzada com sinais que já dispararam de verdade.
+    """
+    if not sinais or not candles_4h:
+        return sinais
+    closes = [c["close"] for c in candles_4h]
+    rsi_4h = compute_rsi(closes)
+    if rsi_4h is None:
+        return sinais
+    _, _, vol_ratio = volume_status(candles_4h)
+
+    perto_topo = rsi_4h >= (CLIMAX_RSI_HIGH - EXHAUSTION_DIAG_RSI_BAND)
+    perto_fundo = rsi_4h <= (CLIMAX_RSI_LOW + EXHAUSTION_DIAG_RSI_BAND)
+    if not perto_topo and not perto_fundo:
+        return sinais
+    climax_confirmado = vol_ratio is not None and vol_ratio >= CLIMAX_VOLUME_RATIO
+
+    for sig in sinais:
+        if sig.get("estilo") == "EXAUSTÃO":
+            continue  # é o próprio sinal de exaustão, não precisa alertar sobre si mesmo
+        acao = sig.get("acao")
+        if acao == "COMPRAR" and perto_topo:
+            lado = "topo"
+        elif acao == "VENDER" and perto_fundo:
+            lado = "fundo"
+        else:
+            continue
+        forca_txt = "já confirmado (RSI esticado + volume bem acima da média)" if climax_confirmado else "se formando"
+        alerta = (
+            f"⚠️ Exaustão de {lado} {forca_txt} no 4h (RSI {rsi_4h:.0f}) — a força que "
+            f"sustentaria esse sinal pode estar perto de se esgotar; convicção reduzida "
+            f"até o RSI aliviar."
+        )
+        sig.setdefault("detalhes", []).append(alerta)
+    return sinais
+
+
 # ----------------------------------------------------------------------------
 # SINAL 1 — PULLBACK (swing)
 # ----------------------------------------------------------------------------
@@ -2514,6 +3058,113 @@ def check_retest_2h(symbol, candles_2h, candles_2d=None):
     )
 
 
+def check_retest_5m(symbol, candles_5m, candles_1h=None):
+    """
+    Degrau 1h↔5m da escada de fundo ascendente (22/09/2026) — o último dos 5
+    degraus originais que faltava (a lista era 1M↔1D, 1semana↔4h, 1D↔1h,
+    4h↔15m, 1h↔5m). Ver `_check_retest_ladder`.
+    """
+    return _check_retest_ladder(
+        symbol, candles_5m, candles_1h, SCALP_5M_RSI_OVERSOLD, SCALP_5M_RSI_OVERBOUGHT,
+        "5m", "1h", "1h", RETEST_5M_LOOKBACK,
+    )
+
+
+def check_retest_1h(symbol, candles_1h, candles_d=None):
+    """
+    Degrau 1D↔1h da escada de fundo ascendente (22/09/2026). Reaproveita o
+    mesmo par de limiares de RSI já calibrado pro 1h em `check_scalp_1h`
+    (SCALP_1H_RSI_OVERSOLD=31/OVERBOUGHT=69, o "alarme ~31" que o Diego
+    comenta), em vez do 30/70 clássico. Ver `_check_retest_ladder`.
+    """
+    return _check_retest_ladder(
+        symbol, candles_1h, candles_d, SCALP_1H_RSI_OVERSOLD, SCALP_1H_RSI_OVERBOUGHT,
+        "1h", "1D", "diário", RETEST_1H_LOOKBACK,
+    )
+
+
+def check_retest_1d(symbol, candles_d, candles_m=None):
+    """
+    Degrau 1M↔1D da escada de fundo ascendente (22/09/2026) — o topo da
+    escada original. `candles_m` (mensal) costuma ter pouco histórico na
+    Bybit (spot só desde ~2021); `_check_retest_ladder` já lida bem com
+    isso (só soma os fatores extra de confluência do tempo maior quando dá
+    candles suficientes, sem quebrar se não der). Ver `_check_retest_ladder`.
+    """
+    return _check_retest_ladder(
+        symbol, candles_d, candles_m, SCALP_1D_RSI_OVERSOLD, SCALP_1D_RSI_OVERBOUGHT,
+        "1D", "1M", "mensal", RETEST_1D_LOOKBACK,
+    )
+
+
+# Mapeamento menor->maior da escada de fundo ascendente, reaproveitado pelo
+# diagnóstico "de cima pra baixo" abaixo (mesma cascata dos degraus, cada
+# tempo menor apontando pro tempo maior imediatamente acima).
+_ESCADA_MAPA_MENOR_MAIOR = {
+    "5m": ("1h", "1h"),
+    "15m": ("4h", "4h"),
+    "30m": ("12h", "12h"),
+    "1h": ("1D", "diário"),
+    "2h": ("2D", "2D"),
+    "4h": ("1w", "semanal"),
+    "1D": ("1M", "mensal"),
+}
+
+
+def diagnose_fundo_descendente_busca_base(symbol, candles_menor, tf_menor_label, pivot_len=PIVOT_LEN,
+                                           recencia_candles=PIVOT_LEN * 4):
+    """
+    Item 7 das notas de live — reformulação "de cima pra baixo" descrita
+    pelo próprio Thiago (21/09/2026, não veio de nenhuma live do Diego): "em
+    tendência de alta as melhores entradas são sempre em fundos ascendentes
+    em tempos gráficos maiores — se os tempos gráficos menores perderem o
+    último fundo, realizando um fundo descendente, é porque em algum tempo
+    gráfico maior está procurando por sua base". Reaproveita o mesmo
+    mapeamento menor→maior já usado pelos degraus da escada
+    (`_check_retest_ladder`/`_ESCADA_MAPA_MENOR_MAIOR`), só que olhando o
+    sintoma inverso: em vez de um toque de RSI extremo confirmando a base
+    do tempo maior, aqui é a estrutura QUEBRANDO no tempo menor (fundo mais
+    baixo que o pivô de fundo anterior) que aponta pra onde olhar.
+
+    Não é um sinal de entrada — é um diagnóstico de contexto (mesmo formato
+    dos outros `diagnose_*`), pra saber em qual tempo gráfico maior vale a
+    pena acompanhar RSI/estrutura antes de esperar continuação de alta no
+    tempo menor.
+    """
+    mapa = _ESCADA_MAPA_MENOR_MAIOR.get(tf_menor_label)
+    if mapa is None:
+        return None
+    _, tf_maior_prose = mapa
+
+    n = len(candles_menor)
+    if n < 2 * pivot_len + 15:
+        return None
+    _, pivot_lows = find_pivots(candles_menor, pivot_len)
+    if len(pivot_lows) < 2:
+        return None
+    (_, val_prev), (idx_last, val_last) = pivot_lows[-2], pivot_lows[-1]
+    if val_prev <= 0 or val_last >= val_prev:
+        return None  # fundo ainda ascendente (ou igual) — nada a avisar
+
+    idade = (n - 1) - idx_last
+    if idade > recencia_candles:
+        return None  # fundo descendente antigo demais, já é "notícia velha"
+
+    queda_pct = (val_prev - val_last) / val_prev
+    return {
+        "tipo": f"Fundo descendente no {tf_menor_label} — {tf_maior_prose} pode estar buscando base",
+        "score": min(1.0, idade / recencia_candles),
+        "texto": (
+            f"O {tf_menor_label} perdeu o último fundo ascendente: novo fundo em "
+            f"{fmt_price(val_last)}, {queda_pct * 100:.1f}% abaixo do fundo anterior "
+            f"({fmt_price(val_prev)}), há {idade} vela(s). Pela lógica da escada de fundo "
+            f"ascendente, isso costuma acontecer quando o tempo gráfico de cima "
+            f"({tf_maior_prose}) ainda está formando a própria base — vale acompanhar RSI e "
+            f"estrutura no {tf_maior_prose} antes de esperar continuação de alta no {tf_menor_label}."
+        ),
+    }
+
+
 # ----------------------------------------------------------------------------
 # SINAL 4 — BOTTOM FISHING (posição)
 # ----------------------------------------------------------------------------
@@ -2795,6 +3446,59 @@ def rank_relative_weakness_vs_btc(btc_return, alt_returns, top_n=RELATIVE_WEAKNE
         "aviso": (
             "Isso é só um screener de força relativa — não substitui uma análise técnica própria "
             "do ativo (estrutura, RSI, volume) antes de considerar um short."
+        ),
+    }
+
+
+def rank_moedas_atrasadas(alt_returns, avg_alt_return, market_trend, top_n=ATRASADAS_TOP_N,
+                           min_diff_pp=ATRASADAS_MIN_DIFF_PP):
+    """
+    Item 16 das notas de live — espelho de `rank_relative_weakness_vs_btc`
+    (item 13) pro lado COMPRADO: em vez de achar moedas mais fracas que o
+    BTC (candidatas a short), acha moedas que subiram MENOS que a média do
+    grupo de altcoins do watchlist (candidatas a "atrasada", ainda com
+    espaço pra correr por rotação de capital) — mesma ideia de uma operação
+    real do robô do Diego em MANTA (19/09/2026), onde ele chamou a moeda de
+    "atrasada em relação a várias outras que já tiveram movimentos mais
+    fortes" como parte da própria tese de compra.
+
+    Só dispara durante tendência de alta confirmada (`market_trend ==
+    "alta"`) — sugerir "atrasada" num mercado de baixa geral não tem o
+    mesmo racional (não tem rotação de capital nenhuma acontecendo).
+
+    Sinal de CONTEXTO/screener (acao "OBSERVAR", sem entrada/stop/alvo —
+    a ideia é apontar candidatos, não substituir a análise técnica
+    específica de cada um antes de comprar).
+    """
+    if market_trend != "alta" or avg_alt_return is None or not alt_returns:
+        return None
+    candidatos = [(symbol, r, avg_alt_return - r) for symbol, r in alt_returns if (avg_alt_return - r) >= min_diff_pp]
+    if not candidatos:
+        return None
+    candidatos.sort(key=lambda item: -item[2])
+    atrasadas = candidatos[:top_n]
+
+    linhas_detalhe = [
+        f"{symbol.replace('USDT', '')}: {r:+.1f}% ({diff:.1f}pp abaixo da média do grupo)"
+        for symbol, r, diff in atrasadas
+    ]
+
+    return {
+        "symbol": "MERCADO", "estilo": "MACRO", "acao": "OBSERVAR",
+        "titulo": "Moedas atrasadas (candidatas a rotação de capital)",
+        "timeframe": f"1d, {DOMINANCE_LOOKBACK_DAYS}d",
+        "detalhes": [f"Retorno médio do grupo ({DOMINANCE_LOOKBACK_DAYS}d): {avg_alt_return:+.1f}%"] + linhas_detalhe,
+        "explicacao": (
+            f"Ranking de retorno individual de cada moeda do watchlist contra a média do próprio "
+            f"grupo de altcoins nos últimos {DOMINANCE_LOOKBACK_DAYS} dias, só durante tendência de "
+            "alta confirmada — a lógica é a mesma de uma operação real do robô do Diego em MANTA: "
+            "moedas que ainda não subiram tanto quanto o grupo podem ser beneficiadas por rotação de "
+            "capital vindo das que já subiram mais."
+        ),
+        "aviso": (
+            "Isso é só um screener de força relativa dentro do grupo — não substitui uma análise "
+            "técnica própria do ativo (estrutura, RSI, volume) antes de considerar uma compra, e não "
+            "garante que a moeda vai 'alcançar' as outras."
         ),
     }
 
@@ -3246,6 +3950,76 @@ def check_cycle_phase(btc_return, avg_alt_return):
             "Não é sinal de topo garantido, é um alerta de fase de ciclo pra aumentar "
             "a cautela (ex.: realizar parciais, apertar stops) — não uma recomendação "
             "de sair do mercado."
+        ),
+    }
+
+
+def check_rotacao_antecipada_dominancia(btc_candles_4h, btc_return, avg_alt_return):
+    """
+    Item 17b das notas de live — aviso ANTECIPADO de rotação BTC→altcoins,
+    motivado pela mesma operação real do robô do Diego em VIRTUAL
+    (22/09/2026) que gerou o item 17 (cunha, ver `check_wedge_pattern`): a
+    tese de compra citava a exaustão do próprio BTC como parte do racional
+    de rotação de capital pra altcoins — ANTES de isso aparecer nos
+    retornos dos últimos dias. `check_dominance_altseason` é reativo: só
+    dispara depois que a divergência de retorno BTC x alts já apareceu.
+    Esse aqui tenta pegar o aviso um passo antes disso.
+
+    Cruza a exaustão do PRÓPRIO BTC no gráfico de 4h (RSI perto/dentro da
+    zona de clímax de topo, reaproveitando os mesmos limiares de
+    `check_exhaustion_climax`/`adiciona_alerta_exaustao`:
+    `CLIMAX_RSI_HIGH`, `EXHAUSTION_DIAG_RSI_BAND`, `CLIMAX_VOLUME_RATIO`)
+    com o cenário de a divergência de dominância AINDA NÃO ter aparecido
+    nos retornos de `DOMINANCE_LOOKBACK_DAYS` dias — se já tivesse
+    aparecido, `check_dominance_altseason` já teria disparado sozinho, e
+    esse sinal aqui ficaria redundante (por isso ele só dispara quando o
+    reativo NÃO dispararia).
+    """
+    if not btc_candles_4h or btc_return is None or avg_alt_return is None:
+        return None
+    closes = [c["close"] for c in btc_candles_4h]
+    rsi_4h = compute_rsi(closes)
+    if rsi_4h is None:
+        return None
+    _, _, vol_ratio = volume_status(btc_candles_4h)
+
+    perto_topo = rsi_4h >= (CLIMAX_RSI_HIGH - EXHAUSTION_DIAG_RSI_BAND)
+    if not perto_topo:
+        return None  # BTC não mostra sinal de exaustão de topo -> nada a antecipar
+
+    diff = btc_return - avg_alt_return
+    if abs(diff) >= DOMINANCE_DIVERGENCE_PP:
+        return None  # a divergência já apareceu nos retornos -> isso já é o sinal reativo, não antecipado
+
+    climax_confirmado = vol_ratio is not None and vol_ratio >= CLIMAX_VOLUME_RATIO
+    forca_txt = (
+        "clímax de exaustão já confirmado (RSI esticado + volume bem acima da média)"
+        if climax_confirmado else
+        "RSI esticado se formando (ainda sem confirmação de volume)"
+    )
+
+    return {
+        "symbol": "MERCADO", "estilo": "MACRO", "acao": "OBSERVAR",
+        "titulo": "Aviso antecipado: possível rotação BTC → altcoins",
+        "timeframe": f"4h + 1d ({DOMINANCE_LOOKBACK_DAYS}d)",
+        "detalhes": [
+            f"RSI 4h do BTC: {rsi_4h:.1f} ({forca_txt})",
+            f"Retorno BTC ({DOMINANCE_LOOKBACK_DAYS}d): {btc_return:+.1f}%",
+            f"Retorno médio das alts ({DOMINANCE_LOOKBACK_DAYS}d): {avg_alt_return:+.1f}%",
+            f"Diferença atual: {diff:+.1f}pp — ainda dentro da faixa normal (sem divergência clara ainda)",
+        ],
+        "explicacao": (
+            "O RSI de 4h do BTC já está esticado perto (ou dentro) da zona de clímax de topo, mas os "
+            "retornos dos últimos dias do BTC e das alts do watchlist ainda não divergiram de forma "
+            "clara (isso é o que o sinal de dominância/altseason, reativo, capta depois). A ideia aqui "
+            "é antecipar: quando o BTC mostra exaustão no próprio gráfico, historicamente é um bom "
+            "momento pra observar as altcoins de perto, antes que a rotação de capital já tenha "
+            "acontecido e o preço delas já tenha corrido atrás."
+        ),
+        "aviso": (
+            "É um aviso ANTECIPADO baseado em exaustão técnica do BTC, não uma confirmação — o BTC "
+            "pode continuar subindo por mais tempo antes de qualquer rotação de verdade acontecer, ou "
+            "a exaustão pode se dissolver sem nenhuma reversão."
         ),
     }
 
@@ -4106,6 +4880,23 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
     except Exception:
         candles_2d = []
 
+    # últimos 3 degraus da escada original (22/09/2026): 1h↔5m, 1D↔1h,
+    # 1M↔1D — o candles_1h/candles_5m já buscados acima (100/CONFLUENCE_5M_LIMIT
+    # candles) são curtos demais pro lookback desses degraus, por isso um
+    # fetch maior separado aqui, igual o padrão já usado pro 30m/12h/2h/2D.
+    try:
+        candles_5m_ladder = fetch_klines(symbol, "5m", RETEST_5M_LOOKBACK + 40)
+    except Exception:
+        candles_5m_ladder = []
+    try:
+        candles_1h_ladder = fetch_klines(symbol, "1h", RETEST_1H_LOOKBACK + 40)
+    except Exception:
+        candles_1h_ladder = []
+    try:
+        candles_m_ladder = fetch_klines(symbol, "1M", 200)
+    except Exception:
+        candles_m_ladder = []
+
     price_now = candles_4h[-1]["close"]
     linhas = [f"🧭 VELA MONITOR — ANÁLISE — {_fmt_symbol(symbol)}", "",
               f"Preço agora: {fmt_price(price_now)}"]
@@ -4161,8 +4952,54 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         except Exception:
             pass
 
+    if candles_5m_ladder:
+        try:
+            sig = check_retest_5m(symbol, candles_5m_ladder, candles_1h_ladder)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
+
+    if candles_1h_ladder and candles_d:
+        try:
+            sig = check_retest_1h(symbol, candles_1h_ladder, candles_d)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
+
+    if candles_d:
+        try:
+            sig = check_retest_1d(symbol, candles_d, candles_m_ladder)
+            if sig:
+                sinais_ativos.append(sig)
+        except Exception:
+            pass
+
     try:
         sig = check_trendline_breakout(symbol, candles_4h, "4h")
+        if sig:
+            sinais_ativos.append(sig)
+    except Exception:
+        pass
+
+    try:
+        sig = check_retest_broken_level(symbol, candles_4h, "4h")
+        if sig:
+            sinais_ativos.append(sig)
+    except Exception:
+        pass
+
+    try:
+        sig = check_wedge_pattern(symbol, candles_4h, "4h")
+        if sig:
+            sinais_ativos.append(sig)
+    except Exception:
+        pass
+
+    try:
+        candles_1d_periodo = fetch_klines(symbol, "1d", BREAKOUT_MAXIMA_LOOKBACK_DIAS + 20)
+        sig = check_breakout_maxima_periodo_volume(symbol, candles_1d_periodo)
         if sig:
             sinais_ativos.append(sig)
     except Exception:
@@ -4223,11 +5060,16 @@ def build_symbol_deep_dive(symbol_input, market_trend="neutra"):
         diagnose_light_reversal(candles_d) if candles_d else None,
         diagnose_confluence(candles_4h, candles_15m, candles_1h, candles_5m) if (candles_15m and candles_1h) else None,
         diagnose_oco_pattern(symbol, candles_4h, "4h"),
+        diagnose_fundo_descendente_busca_base(symbol, candles_4h, "4h"),
+        diagnose_fundo_descendente_busca_base(symbol, candles_15m, "15m") if candles_15m else None,
+        diagnose_fundo_descendente_busca_base(symbol, candles_1h, "1h") if candles_1h else None,
+        diagnose_fundo_descendente_busca_base(symbol, candles_d, "1D") if candles_d else None,
     ) if d]
 
     sinais_ativos = aplica_filtros_qualidade(sinais_ativos, market_trend, diagnosticos_extra=diagnosticos)
     sinais_ativos = adiciona_plano_b(sinais_ativos, candles_4h, candles_d)
     sinais_ativos = adiciona_referencia_ema200_diaria(sinais_ativos, candles_d)
+    sinais_ativos = adiciona_alerta_exaustao(sinais_ativos, candles_4h)
 
     contexto_txt = None
     if symbol != "BTCUSDT" and candles_d:
@@ -4913,12 +5755,71 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
         except Exception as e:
             print(f"  {symbol}: erro no check de reteste após toque de RSI no 2h ({e})")
 
+    # últimos 3 degraus da escada original (22/09/2026): 1h↔5m, 1D↔1h, 1M↔1D.
+    # candles_d já foi buscado acima (bottom fishing/reversão leve) — só
+    # falta o mensal, buscado aqui porque não é usado em mais nada.
+    try:
+        candles_5m_ladder = fetch_klines(symbol, "5m", RETEST_5M_LOOKBACK + 40)
+        candles_1h_ladder = fetch_klines(symbol, "1h", RETEST_1H_LOOKBACK + 40)
+    except Exception as e:
+        print(f"  {symbol}: erro buscando candles de 5m/1h pra escada ({e})")
+        candles_5m_ladder, candles_1h_ladder = [], []
+    if candles_5m_ladder:
+        try:
+            sig = check_retest_5m(symbol, candles_5m_ladder, candles_1h_ladder)
+            if sig:
+                sinais.append(sig)
+        except Exception as e:
+            print(f"  {symbol}: erro no check de reteste após toque de RSI no 5m ({e})")
+    if candles_1h_ladder and candles_d:
+        try:
+            sig = check_retest_1h(symbol, candles_1h_ladder, candles_d)
+            if sig:
+                sinais.append(sig)
+        except Exception as e:
+            print(f"  {symbol}: erro no check de reteste após toque de RSI no 1h ({e})")
+
+    if candles_d:
+        try:
+            candles_m_ladder = fetch_klines(symbol, "1M", 200)
+        except Exception as e:
+            print(f"  {symbol}: erro buscando candles mensais pra escada ({e})")
+            candles_m_ladder = []
+        try:
+            sig = check_retest_1d(symbol, candles_d, candles_m_ladder)
+            if sig:
+                sinais.append(sig)
+        except Exception as e:
+            print(f"  {symbol}: erro no check de reteste após toque de RSI no 1D ({e})")
+
     try:
         sig = check_trendline_breakout(symbol, candles_4h, "4h")
         if sig:
             sinais.append(sig)
     except Exception as e:
         print(f"  {symbol}: erro no check de rompimento de linha de tendência ({e})")
+
+    try:
+        sig = check_retest_broken_level(symbol, candles_4h, "4h")
+        if sig:
+            sinais.append(sig)
+    except Exception as e:
+        print(f"  {symbol}: erro no check de reteste de nível rompido ({e})")
+
+    try:
+        sig = check_wedge_pattern(symbol, candles_4h, "4h")
+        if sig:
+            sinais.append(sig)
+    except Exception as e:
+        print(f"  {symbol}: erro no check de padrão de cunha ({e})")
+
+    try:
+        candles_1d_periodo = fetch_klines(symbol, "1d", BREAKOUT_MAXIMA_LOOKBACK_DIAS + 20)
+        sig = check_breakout_maxima_periodo_volume(symbol, candles_1d_periodo)
+        if sig:
+            sinais.append(sig)
+    except Exception as e:
+        print(f"  {symbol}: erro no check de rompimento de máxima com volume ({e})")
 
     try:
         sig = check_oco_pattern(symbol, candles_4h, "4h")
@@ -4931,9 +5832,23 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
     except Exception as e:
         print(f"  {symbol}: erro no check de padrão ombro-cabeça-ombro ({e})")
 
+    # diagnóstico "de cima pra baixo" (item 7, reformulação do Thiago,
+    # 22/09/2026) — roda em todo tempo gráfico já disponível aqui que tem um
+    # tempo maior mapeado na escada (ver _ESCADA_MAPA_MENOR_MAIOR).
+    for candles_tf, tf_label in ((candles_4h, "4h"), (candles_15m, "15m"), (candles_1h, "1h"), (candles_d, "1D")):
+        if not candles_tf:
+            continue
+        try:
+            diag = diagnose_fundo_descendente_busca_base(symbol, candles_tf, tf_label)
+            if diag:
+                diagnosticos.append({"symbol": symbol, **diag})
+        except Exception as e:
+            print(f"  {symbol}: erro no diagnóstico de fundo descendente ({tf_label}) ({e})")
+
     sinais = aplica_filtros_qualidade(sinais, market_trend, diagnosticos_extra=diagnosticos)
     sinais = adiciona_plano_b(sinais, candles_4h, candles_d)
     sinais = adiciona_referencia_ema200_diaria(sinais, candles_d)
+    sinais = adiciona_alerta_exaustao(sinais, candles_4h)
     return sinais, diagnosticos
 
 
@@ -5686,6 +6601,21 @@ def main():
             print(f"  erro no ranking de força relativa vs BTC ({e})")
 
         try:
+            atrasadas_sig = rank_moedas_atrasadas(alt_returns, avg_alt_return, market_trend)
+            if atrasadas_sig:
+                encontrados += 1
+                houve_sinal_scan_completo = True
+                msg = format_signal_message(atrasadas_sig)
+                print("-" * 60)
+                print(msg)
+                ok = send_telegram_message(msg)
+                print("  -> enviado pro Telegram" if ok else "  -> FALHOU ao enviar")
+            else:
+                print("  sem candidato claro de moeda atrasada no momento (ou fora de tendência de alta)")
+        except Exception as e:
+            print(f"  erro no screener de moedas atrasadas ({e})")
+
+        try:
             btc_candles_4h_regime = fetch_klines("BTCUSDT", "4h", KLINES_LIMIT)
             regime_sig = check_regime_rsi_4h_esticado(btc_candles_4h_regime)
             if regime_sig:
@@ -5700,6 +6630,22 @@ def main():
                 print("  RSI de 4h do BTC sem sequência esticada relevante no momento")
         except Exception as e:
             print(f"  erro no leitor de regime via RSI 4h esticado ({e})")
+            btc_candles_4h_regime = None
+
+        try:
+            rotacao_sig = check_rotacao_antecipada_dominancia(btc_candles_4h_regime, btc_return, avg_alt_return)
+            if rotacao_sig:
+                encontrados += 1
+                houve_sinal_scan_completo = True
+                msg = format_signal_message(rotacao_sig)
+                print("-" * 60)
+                print(msg)
+                ok = send_telegram_message(msg)
+                print("  -> enviado pro Telegram" if ok else "  -> FALHOU ao enviar")
+            else:
+                print("  sem aviso antecipado de rotação BTC -> altcoins no momento")
+        except Exception as e:
+            print(f"  erro no aviso antecipado de rotação de dominância ({e})")
 
         print(f"[{datetime.now(timezone.utc).isoformat()}] Varredura da altcoin do dia "
               f"(pares contra BTC, não contra USDT)...")
