@@ -647,6 +647,91 @@ virar sinal com peso próprio.
 
 ---
 
+### 10) Vídeo curto colado direto pelo Thiago no chat, sem título/URL,
+~5min30 (BTC rompendo US$ 85.000 em tempo real)
+
+Contexto: vídeo de acompanhamento ao vivo do rompimento dos US$ 85.000,
+com o apresentador reafirmando a tese de bull market e revisando as
+posições pessoais dele (BTC, ETH, XRP). Bastante conteúdo é revisão/
+validação de padrões já notados em lives anteriores — poucos conceitos
+realmente novos.
+
+Conceitos/técnicas que aparecem (e o que já existe ou não no bot):
+
+- **Fundo ascendente confirmado no tempo gráfico de 3 meses**, segurando a
+  EMA26, com rompimento de um nível técnico específico (~83.150) — e a tese
+  de que, historicamente, nunca houve caso do Bitcoin confirmar esse
+  rompimento no 3 meses e depois voltar a perder os fundos. É a mesma ideia
+  da "tendência em 3 tempos gráficos" que o bot já usa (`detect_market_trend`,
+  hoje cruzando diário+semanal+mensal), só que citando o 3 meses como leitura
+  extra de "zoom out" — parecido em espírito com o 3D já implementado pra
+  cenário "poluído" (ver seção correspondente no README), mas numa escala
+  bem maior. Não é uma técnica nova de detecção, mais uma validação de que
+  olhar tempos gráficos maiores pra confirmar a tendência de fundo é algo
+  que ele faz em várias escalas, não só diário/semanal/mensal. Sem ação de
+  código — não vale esticar `detect_market_trend` pra 3 meses só por causa
+  de uma menção, mas fica registrado como possível 4º tempo gráfico se
+  aparecer de novo em lives futuras.
+
+- **Cruzamento de EMA12/26 confirmado, citado de novo como o mesmo tipo de
+  evento que historicamente "destravou" o início do bull market** —
+  reforça o item 12 (`check_weekly_ema_cross`, já corrigido pra EMA12/26 na
+  live #9), sem informação nova o bastante pra saber com certeza se ele tá
+  falando do cruzamento no semanal (como nas lives #8/#9) ou no 3 meses
+  (tempo gráfico que ele estava olhando nesse trecho específico) — ambíguo
+  pelo contexto do vídeo. Sem ação de código por enquanto; vale prestar
+  atenção se uma live futura deixar claro que o cruzamento importante
+  também é olhado no 3 meses, não só no semanal.
+
+- **RSI de 4h nunca ficando muito tempo em sobrecompra durante bear
+  market (só "pequenos tiros" que não sustentam), contra ficar esticado por
+  muito tempo em sobrecompra como characterísitca de bull market** — é
+  literalmente a mesma tese do item 9 ("RSI de 4h esticado por muitos dias
+  como leitor de regime bull/bear"), agora explicada com mais detalhe
+  (o contraste explícito bear vs. bull, não só "RSI esticado = força").
+  Já são pelo menos 4 lives citando essa ideia (#7, #8, #9 e agora essa) —
+  o candidato mais validado e ainda não implementado da lista. Nenhuma
+  mudança de código nessa sessão, mas o volume de confirmações reforça que
+  vale priorizar isso quando o Thiago quiser seguir com algo novo.
+
+- **"Perda de mínima sem continuidade de queda" citada de novo**, dessa vez
+  a respeito da região de 60–61 mil onde as baleias acumularam durante o
+  pânico mais extremo do movimento — mais uma confirmação (já iam 4, essa é
+  a 5ª) do padrão do item 6 ("mínima sem continuidade de queda = bandeira
+  de alta viva"), já coberto conceitualmente pelos sinais existentes
+  (bandeira, item 8). Sem ação de código.
+
+- **Validação em tempo real do degrau 30m↔12h da escada, implementado
+  ontem**: "a gente viu 30 minutos batendo um nível de sobrevenda numa
+  correção durante o final de semana" — é exatamente o cenário que
+  `check_retest_30m` (item 7, degrau novo de 21/09/2026) foi feito pra
+  capturar: sobrevenda no 30m durante uma correção dentro de uma tendência
+  de alta maior, like entrada pra quem "ficou atrasado". Validação direta
+  e sem precisar de nenhuma mudança — o degrau acabou de ser implementado e
+  já bate com o que ele descreve fazendo ao vivo.
+
+- **Stop movido pro zero a zero há vários dias, como parte da gestão de
+  risco da posição** — reforça de novo (sem mudança) o item 2, já
+  implementado desde 15/09/2026.
+
+- **Filosofia de gerenciamento**: "errar e não reconhecer o erro é o pior
+  erro", buscar novas entradas mesmo depois de ter perdido o movimento
+  inicial (ex.: sobrevenda no 30m/1h como "última oportunidade" pra quem
+  ficou de fora), e a matemática de R:R por trás de "quem tá errado não
+  perde nada, quem apostou contra perde o início do bull market" — filosofia
+  de gestão/psicológica, sem tradução direta em sinal técnico novo. Mesmo
+  tipo de conteúdo não-acionável já visto nas lives #2, #3 e #9.
+
+**Resumo de candidatos a melhoria dessa live**: nenhum sinal novo pra
+implementar — foi, na prática, uma live de validação. O destaque real é a
+**validação em tempo real do degrau 30m↔12h** implementado ontem
+(`check_retest_30m`), e mais uma (a 4ª) confirmação do candidato "RSI 4h
+esticado por dias = regime" (item 9), que segue como o candidato mais
+maduro ainda sem implementação — vale perguntar ao Thiago se ele quer
+seguir com esse quando tiver uma folga.
+
+---
+
 ## Padrões que já apareceram em mais de uma live (mais forte candidato a virar código)
 
 1. **RSI em sobrevenda/sobrecompra no 4h é o setup de maior convicção pra ele**
@@ -854,14 +939,14 @@ outros dois candidatos primeiro.
 
 ## Progresso
 
-- Processadas: 9 de ~30+ (últimos ~2 meses) — canal tem mais de 100 lives no
+- Processadas: 10 de ~30+ (últimos ~2 meses) — canal tem mais de 100 lives no
   total, indo bem mais pra trás no tempo. 11/09, 10/09, 01/09, 20/08, 14/08,
-  16/09, 17/09, 18/09 e 19/09/2026 (a partir da #6, todas coladas direto pelo
-  Thiago no chat, sem passar por busca/navegação no canal — passou a mandar a
-  transcrição das lives diárias diretamente) — cobrindo correção/
-  lateralização, disparada forte de alta, uma live mais multi-mercado, três
+  16/09, 17/09, 18/09, 19/09 e 22/09/2026 (a partir da #6, todas coladas direto
+  pelo Thiago no chat, sem passar por busca/navegação no canal — passou a
+  mandar a transcrição das lives diárias diretamente) — cobrindo correção/
+  lateralização, disparada forte de alta, uma live mais multi-mercado, quatro
   lives "ao vivo" reagindo a notícias/preço do dia (Clarity Act, juros dos
-  EUA, resistência dos 82 mil).
+  EUA, resistência dos 82 mil, rompimento dos 85 mil).
 - Candidata seguinte pra buscar no canal, se o Thiago não mandar a próxima
   direto (ainda não processada): "Trade Ao Vivo! Análise do Bitcoin,
   Altcoins e Mercado Internacional!" (ncl4n0dfK1Y, ~2 meses atrás).
@@ -1084,3 +1169,14 @@ outros dois candidatos primeiro.
   "Tendência em 3 tempos gráficos" no README, `detect_market_trend`).
   Guardada no item 7 como candidato futuro (diagnóstico de "qual tempo
   gráfico está buscando sua base agora"), ainda não implementado.
+- 22/09/2026: processado o vídeo #10 (curto, ~5min30, colado direto pelo
+  Thiago, sem título/URL), sobre o rompimento dos US$ 85.000. Sessão
+  majoritariamente de validação, sem nenhum sinal novo pra implementar:
+  destaque real foi a confirmação, em tempo real, do degrau 30m↔12h da
+  escada (`check_retest_30m`) implementado só um dia antes ("30 minutos
+  batendo sobrevenda numa correção de final de semana" bate exatamente com
+  o cenário que o sinal foi feito pra capturar), além de mais uma (a 4ª)
+  confirmação do candidato ainda não implementado "RSI 4h esticado por dias
+  como leitor de regime bull/bear" (item 9) e mais uma (a 5ª) do padrão
+  "mínima sem continuidade de queda" (item 6, já coberto). Nenhuma mudança
+  de código nesta sessão.
