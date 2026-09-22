@@ -442,6 +442,26 @@ RETEST_4H_MIN_BOUNCE_PCT = 0.03  # precisa ter se afastado pelo menos 3% do nív
 RETEST_4H_ZONE_TOLERANCE = 0.02  # até 2% de distância do nível original já conta como reteste
 RETEST_4H_STOP_BUFFER = 0.005    # stop um pouco além do fundo/topo original, não exatamente em cima
 
+# --- RSI de 4h esticado por muitos dias = leitor de regime bull/bear (item 9
+# das notas de live, confirmado em 4 lives diferentes: #7, #8, #9 e o vídeo
+# curto de 22/09/2026) — a tese do Diego: bear market nunca sustenta o RSI de
+# 4h esticado em sobrecompra por muito tempo, só dá "pequenos tiros" que não
+# continuam; sustentar o RSI esticado por dias seguidos, sem resetar, é
+# característica de regime de força (bull). O bot espelha a mesma lógica pro
+# lado de baixa (sobrevenda esticada e sustentada = regime de fraqueza/bear).
+# OVERBOUGHT/OVERSOLD são os limiares de entrada (mais extremos que o 70/30
+# clássico do scalp de 4h) — só dispara quando o RSI atual já está bem lá
+# dentro; SUSTAIN_* são os "pisos"/"tetos" que a sequência de candles pra
+# trás não pode romper pra continuar contando como "sustentado" (mesmo nível
+# 70/30 clássico — ou seja, uma vez que entra esticado, precisa ficar pelo
+# menos no território clássico de sobrecompra/sobrevenda o tempo todo, sem
+# resetar pra neutro).
+REGIME_RSI4H_OVERBOUGHT = 80
+REGIME_RSI4H_OVERSOLD = 20
+REGIME_RSI4H_SUSTAIN_OVERBOUGHT = SCALP_4H_RSI_OVERBOUGHT  # 70 — não pode fechar abaixo disso durante a sequência
+REGIME_RSI4H_SUSTAIN_OVERSOLD = SCALP_4H_RSI_OVERSOLD      # 30 — espelho, não pode fechar acima disso
+REGIME_RSI4H_MIN_CANDLES = 42    # ~7 dias de candles de 4h (6/dia) — mínimo pra contar como "muitos dias seguidos"
+
 # --- Sugestão de mover o stop pra zero a zero (memória da última operação) ---
 # múltiplo de R (distância entrada→stop) que o preço precisa andar a favor,
 # ainda com a operação aberta, pra memória sugerir travar o risco no zero a zero
@@ -908,6 +928,44 @@ def compute_rsi(closes, period=RSI_PERIOD):
         return 100.0
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
+
+
+def _compute_rsi_series(closes, period=RSI_PERIOD):
+    """
+    Série de RSI (mesma suavização de Wilder do compute_rsi) alinhada a
+    `closes` — `serie[i]` é o RSI calculado só com `closes[:i+1]`, igual
+    chamar `compute_rsi(closes[:i+1])` pra cada `i`, só que num único passo
+    (a suavização é incremental, então não precisa recalcular do zero pra
+    cada ponto). Os primeiros `period` valores vêm como `None` (RSI ainda
+    não dá pra calcular com poucos candles). Usado pelo leitor de regime
+    (RSI 4h esticado por muitos dias, ver `check_regime_rsi_4h_esticado`),
+    que precisa da série inteira pra contar quantos candles seguidos o RSI
+    ficou esticado, não só o valor mais recente.
+    """
+    n = len(closes)
+    serie = [None] * n
+    if n < period + 1:
+        return serie
+    gains, losses = [], []
+    for i in range(1, n):
+        change = closes[i] - closes[i - 1]
+        gains.append(max(change, 0.0))
+        losses.append(max(-change, 0.0))
+    avg_gain = sum(gains[:period]) / period
+    avg_loss = sum(losses[:period]) / period
+
+    def _rsi_from_avgs(avg_gain, avg_loss):
+        if avg_loss == 0:
+            return 100.0
+        rs = avg_gain / avg_loss
+        return 100 - (100 / (1 + rs))
+
+    serie[period] = _rsi_from_avgs(avg_gain, avg_loss)
+    for i in range(period, len(gains)):
+        avg_gain = (avg_gain * (period - 1) + gains[i]) / period
+        avg_loss = (avg_loss * (period - 1) + losses[i]) / period
+        serie[i + 1] = _rsi_from_avgs(avg_gain, avg_loss)
+    return serie
 
 
 def compute_ema(closes, period=EMA_TREND_PERIOD):
@@ -2737,6 +2795,98 @@ def rank_relative_weakness_vs_btc(btc_return, alt_returns, top_n=RELATIVE_WEAKNE
         "aviso": (
             "Isso é só um screener de força relativa — não substitui uma análise técnica própria "
             "do ativo (estrutura, RSI, volume) antes de considerar um short."
+        ),
+    }
+
+
+def check_regime_rsi_4h_esticado(candles_4h, overbought=REGIME_RSI4H_OVERBOUGHT, oversold=REGIME_RSI4H_OVERSOLD,
+                                  sustain_overbought=REGIME_RSI4H_SUSTAIN_OVERBOUGHT,
+                                  sustain_oversold=REGIME_RSI4H_SUSTAIN_OVERSOLD,
+                                  min_candles=REGIME_RSI4H_MIN_CANDLES):
+    """
+    Leitor de regime bull/bear (item 9 das notas de live, confirmado em 4
+    lives diferentes: #7, #8, #9 e o vídeo de 22/09/2026): o Diego usa o
+    histórico do RSI de 4h do BTC pra argumentar que bear market nunca
+    sustenta o RSI esticado em sobrecompra por muito tempo — só dá "pequenos
+    tiros" até lá que não continuam; ficar esticado por dias seguidos sem
+    resetar é característica de regime de força (bull). Espelha a mesma
+    lógica pro lado de baixa (sobrevenda esticada e sustentada = regime de
+    fraqueza/bear), já que ele não deu exemplo desse lado, mas é a mesma
+    ideia por simetria.
+
+    Só dispara quando o RSI atual já está no território mais extremo
+    (`overbought`/`oversold`, mais apertado que o 70/30 clássico de scalp) —
+    aí conta pra trás quantos candles seguidos o RSI ficou "sustentado" sem
+    resetar abaixo/acima do território clássico (`sustain_overbought`/
+    `sustain_oversold`, 70/30). Só confirma o regime quando essa sequência
+    já dura pelo menos `min_candles` (~7 dias em candles de 4h).
+
+    Sinal de CONTEXTO/regime (acao "OBSERVAR"), não é gatilho de entrada —
+    é uma leitura de pano de fundo pra calibrar convicção nos outros sinais,
+    não pra abrir posição sozinho.
+    """
+    if not candles_4h:
+        return None
+    closes = [c["close"] for c in candles_4h]
+    serie = _compute_rsi_series(closes)
+    serie_valida = [v for v in serie if v is not None]
+    if len(serie_valida) < min_candles:
+        return None
+
+    rsi_atual = serie_valida[-1]
+    if rsi_atual >= overbought:
+        lado = "sobrecompra"
+        piso_sustain = sustain_overbought
+        condicao_sustain = lambda v: v >= piso_sustain
+    elif rsi_atual <= oversold:
+        lado = "sobrevenda"
+        piso_sustain = sustain_oversold
+        condicao_sustain = lambda v: v <= piso_sustain
+    else:
+        return None
+
+    candles_esticado = 0
+    for v in reversed(serie_valida):
+        if condicao_sustain(v):
+            candles_esticado += 1
+        else:
+            break
+    if candles_esticado < min_candles:
+        return None
+
+    dias_aprox = candles_esticado / 6  # 6 candles de 4h por dia
+
+    if lado == "sobrecompra":
+        titulo = "RSI 4h esticado em sobrecompra por vários dias — regime de força (bull)"
+        explicacao = (
+            f"RSI de 4h em {rsi_atual:.0f}, sustentado acima de {piso_sustain:.0f} há pelo menos "
+            f"{candles_esticado} candles seguidos (~{dias_aprox:.0f} dias) sem resetar pro "
+            f"neutro — segundo o Diego, bear market nunca sustenta o RSI de 4h esticado em "
+            f"sobrecompra por muito tempo, só dá \"pequenos tiros\" que não continuam; ficar "
+            f"esticado por dias seguidos assim é característica de regime de força (bull)."
+        )
+    else:
+        titulo = "RSI 4h esticado em sobrevenda por vários dias — regime de fraqueza (bear)"
+        explicacao = (
+            f"RSI de 4h em {rsi_atual:.0f}, sustentado abaixo de {piso_sustain:.0f} há pelo menos "
+            f"{candles_esticado} candles seguidos (~{dias_aprox:.0f} dias) sem resetar pro "
+            f"neutro — espelho do padrão que o Diego descreve pro lado de alta: ficar esticado "
+            f"em sobrevenda por dias seguidos, sem repique de verdade, é característica de "
+            f"regime de fraqueza (bear)."
+        )
+
+    return {
+        "symbol": "MERCADO", "estilo": "MACRO", "acao": "OBSERVAR",
+        "titulo": titulo,
+        "timeframe": "4h",
+        "detalhes": [
+            f"RSI 4h atual: {rsi_atual:.0f}",
+            f"Candles de 4h seguidos esticado: {candles_esticado} (~{dias_aprox:.0f} dias)",
+        ],
+        "explicacao": explicacao,
+        "aviso": (
+            "Leitura de contexto/regime baseada no histórico do RSI de 4h — não é gatilho de "
+            "entrada nem substitui a análise técnica própria de cada sinal."
         ),
     }
 
@@ -5534,6 +5684,22 @@ def main():
                 print("  sem candidato claro de força relativa fraca contra o BTC no momento")
         except Exception as e:
             print(f"  erro no ranking de força relativa vs BTC ({e})")
+
+        try:
+            btc_candles_4h_regime = fetch_klines("BTCUSDT", "4h", KLINES_LIMIT)
+            regime_sig = check_regime_rsi_4h_esticado(btc_candles_4h_regime)
+            if regime_sig:
+                encontrados += 1
+                houve_sinal_scan_completo = True
+                msg = format_signal_message(regime_sig)
+                print("-" * 60)
+                print(msg)
+                ok = send_telegram_message(msg)
+                print("  -> enviado pro Telegram" if ok else "  -> FALHOU ao enviar")
+            else:
+                print("  RSI de 4h do BTC sem sequência esticada relevante no momento")
+        except Exception as e:
+            print(f"  erro no leitor de regime via RSI 4h esticado ({e})")
 
         print(f"[{datetime.now(timezone.utc).isoformat()}] Varredura da altcoin do dia "
               f"(pares contra BTC, não contra USDT)...")

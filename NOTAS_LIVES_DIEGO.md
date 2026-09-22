@@ -826,11 +826,22 @@ seguir com esse quando tiver uma folga.
    histórico do RSI de 4h pra mostrar que extremos tão prolongados nunca
    acontecem durante bear market (só na virada pra bull, ex.: jan/2023).
    Reforçado de novo na live #8 (18/09/2026), agora ligando isso ao mercado
-   ignorando a alta de juros dos EUA como evidência de força extrema. Mais
-   leitura de contexto macro do que gatilho de entrada, mas com 2
-   confirmações agora (#7 e #8) — **prioridade subiu de baixa pra média**,
-   candidato a "termômetro de regime" parecido em espírito com o termômetro
-   de ciclo (sinal 7).
+   ignorando a alta de juros dos EUA como evidência de força extrema, na
+   live #9 (19/09/2026) e no vídeo #10 (22/09/2026, "pequenos tiros" em
+   bear market vs. sustentação longa em bull) — 4 confirmações ao todo.
+   **✅ IMPLEMENTADO** (`check_regime_rsi_4h_esticado`, 22/09/2026) — sinal
+   de contexto/regime (`MACRO`/`OBSERVAR`, símbolo `"MERCADO"`, mesmo
+   padrão do sinal de dominância): só dispara quando o RSI de 4h do BTC já
+   está no território mais extremo (80/20, `REGIME_RSI4H_OVERBOUGHT`/
+   `REGIME_RSI4H_OVERSOLD`) E ficou sustentado (sem resetar abaixo/acima do
+   70/30 clássico) por pelo menos `REGIME_RSI4H_MIN_CANDLES` (42 candles de
+   4h, ~7 dias) — a contagem de sustentação é o que distingue um "pequeno
+   tiro" isolado (não confirma nada) de uma sequência de verdade. Espelha a
+   mesma lógica pro lado de baixa (sobrevenda sustentada = regime de
+   fraqueza/bear) por simetria, já que ele só deu exemplo do lado de alta.
+   Nova função auxiliar `_compute_rsi_series` (devolve a série inteira de
+   RSI, não só o valor mais recente) reutilizável por qualquer sinal futuro
+   que precise de histórico de RSI.
 10. **Ombro-cabeça-ombro invertido (OCOi) e clássico (OCO)** — 2 aparições
     em lives (#6 e #7) como cenário especulativo, e depois confirmado de
     forma bem concreta num sinal real do robô do próprio Diego (print
@@ -908,6 +919,50 @@ seguir com esse quando tiver uma folga.
     ranking e condicionando ao contexto de tendência de alta/altseason
     (`detect_market_trend`/`check_dominance_altseason`), pra não sugerir
     "atrasada" num mercado de baixa geral.
+17. **Cunha descendente (falling wedge) na base, no par contra BTC, como
+    setup de rotação de capital** — análise real de uma operação do robô do
+    Diego em VIRTUAL (colada pelo Thiago em 22/09/2026, print do
+    VIRTUALUSDT no TradingView + texto do robô): no par VIRTUALBTC (não no
+    USDT — ver observação abaixo), o preço está "na base de uma cunha
+    descendente", com a tese de que, quando o BTC encontrar um topo e
+    começar a lateralizar, a dominância dele (subindo no momento) deve
+    voltar a corrigir, beneficiando VIRTUAL com entrada de capital
+    rotacional. Entrada na região atual, stop abaixo de 0,57 (base do
+    semanal), alvos acima do pivô de alta do semanal, condicionados ao
+    rompimento de 0,86 primeiro. **→ o bot não tem isso hoje**: nenhum
+    sinal atual detecta cunha (duas retas de tendência convergindo, ambas
+    inclinadas pra baixo) — é uma estrutura diferente da LTB/LTA de reta
+    única (`check_trendline_breakout`, item 11) e diferente do padrão de
+    equilíbrio/range (`check_range_market`). Precisaria ajustar duas retas
+    (topo e fundo) aos pivôs recentes, confirmar que convergem (inclinação
+    negativa nas duas, mas a de cima mais íngreme, "fechando" o range) e
+    disparar no rompimento da reta de cima — mesma família técnica do que
+    já existe pra LTB/LTA, só que com duas retas em vez de uma.
+
+    A tese de rotação em si (BTC topando/lateralizando → dominância corrige
+    → capital rotaciona pra alts) é a MESMA lógica do sinal de dominância/
+    altseason (item 5, `check_dominance_altseason`) e do "achar candidatos
+    no par contra BTC" (item 14, `find_altcoin_do_dia` — a análise já é
+    feita certo, no par BTC, não em % de retorno USDT) — mas aqui ele está
+    posicionando **antes** da rotação acontecer, antecipando que o BTC vai
+    topar, não reagindo a uma divergência que já aconteceu (o jeito que o
+    item 5 funciona hoje, olhando retorno dos últimos `DOMINANCE_LOOKBACK_DAYS`
+    dias). Pra antecipar isso de verdade, precisaria de um sinal de
+    exaustão/topo aplicado especificamente ao BTC — o sinal 2 (exaustão) já
+    existe no bot, mas roda pra qualquer moeda igual, nunca foi pensado como
+    "leitor de topo do BTC pra antecipar rotação pra alts". Candidato de
+    2 partes, nenhuma implementada ainda: (a) detecção de cunha descendente
+    genérica; (b) cruzar exaustão do BTC + dominância subindo como
+    "aviso antecipado de rotação pra alts", antes da divergência aparecer
+    nos retornos.
+
+**Observação**: o texto do robô do Diego fala do par **VIRTUALBTC**
+("no par com o BTC"), mas o print que o Thiago mandou é do **VIRTUALUSDT**
+(perpétuo) — provavelmente só o gráfico que ele tinha aberto na hora, não
+o par que embasou a análise. Vale ter isso em mente: o preço/EMAs/RSI
+visíveis no print (0,7261, RSI(4) neutro por volta de 50-55) são do par
+USDT, não necessariamente batem com a leitura técnica feita no par BTC que
+o texto descreve.
 
 **Observação**: a mesma análise de MANTA também reforça, sem exigir código
 novo, dois comportamentos já implementados — o filtro de risco/retorno (o
@@ -1180,3 +1235,25 @@ outros dois candidatos primeiro.
   como leitor de regime bull/bear" (item 9) e mais uma (a 5ª) do padrão
   "mínima sem continuidade de queda" (item 6, já coberto). Nenhuma mudança
   de código nesta sessão.
+- 22/09/2026 (mesmo dia, sessão seguinte): perguntado se o bot já tinha mais
+  algum candidato não implementado, respondi com a lista (itens 3, 5, os 2
+  degraus restantes da escada, item 9, item 16, e os 2 candidatos soltos de
+  rompimento de máxima com volume/calendário macro), e o Thiago confirmou
+  implementar o item 9 agora. **✅ IMPLEMENTADO**
+  (`check_regime_rsi_4h_esticado` + `_compute_rsi_series`, 22/09/2026) — ver
+  detalhe completo no item 9 acima. Teste novo cobrindo a série de RSI
+  ponto a ponto, o regime de força (bull) e de fraqueza (bear) sustentados,
+  o cenário de "pequeno tiro" isolado (RSI cruza o limiar de entrada mas
+  sem sustentação suficiente — não deveria confirmar regime, e não
+  confirmou) e RSI neutro/candles insuficientes; suíte completa re-rodada
+  sem regressões (25 arquivos).
+- 22/09/2026 (mesmo dia, sessão seguinte): o Thiago mandou uma operação real
+  do robô do Diego em VIRTUAL (texto de análise + print do VIRTUALUSDT) pra
+  estudar candidatos de sinal futuro. Análise: cunha descendente na base do
+  par VIRTUALBTC, tese de rotação de capital antecipando o BTC topar/
+  lateralizar e a dominância corrigir. Nenhum código novo implementado —
+  virou o item 17 acima (candidato de 2 partes: detecção de cunha
+  descendente genérica, e cruzar exaustão do BTC + dominância subindo como
+  aviso antecipado de rotação pra alts, antes da divergência aparecer nos
+  retornos). Notado também que o print mandado era do par USDT, não do
+  BTC que o texto da análise descreve.

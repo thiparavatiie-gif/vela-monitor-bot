@@ -600,6 +600,40 @@ de alta convicção pra montar posição de mais longo prazo.
 > de EMA12/26 — mais rápido, então dispara com mais frequência que o
 > comportamento anterior.
 
+## RSI de 4h esticado por dias = leitor de regime bull/bear (`check_regime_rsi_4h_esticado`)
+
+Candidato confirmado em 4 lives diferentes (#7, #8, #9 e um vídeo curto de
+22/09/2026) antes de virar código: a tese do Diego é que bear market nunca
+sustenta o RSI de 4h esticado em sobrecompra por muito tempo — só dá
+"pequenos tiros" até lá que revertem logo em seguida; ficar esticado por
+dias seguidos sem resetar pro neutro é característica de regime de força
+(bull). O bot espelha a mesma lógica pro lado de baixa (sobrevenda esticada
+e sustentada = regime de fraqueza/bear) por simetria, já que ele não deu
+exemplo desse lado nas lives.
+
+Como funciona:
+- Calcula a série inteira de RSI de 4h do BTC (não só o valor mais recente)
+  via `_compute_rsi_series` — generalização do `compute_rsi` que devolve o
+  RSI ponto a ponto, pra dar pra contar quantos candles seguidos ficaram
+  esticados.
+- Só considera disparar quando o RSI **atual** já está no território mais
+  extremo (`REGIME_RSI4H_OVERBOUGHT`/`REGIME_RSI4H_OVERSOLD` — 80/20, mais
+  apertado que o 70/30 clássico do scalp de 4h).
+- A partir daí, conta pra trás quantos candles seguidos o RSI ficou
+  "sustentado" sem resetar abaixo/acima do território clássico de
+  sobrecompra/sobrevenda (`REGIME_RSI4H_SUSTAIN_OVERBOUGHT`/
+  `REGIME_RSI4H_SUSTAIN_OVERSOLD` — 70/30) — é essa contagem que distingue
+  um "pequeno tiro" isolado (reseta rápido, não confirma nada) de uma
+  sequência de verdade sustentada.
+- Só confirma o regime quando essa sequência já dura pelo menos
+  `REGIME_RSI4H_MIN_CANDLES` (42 candles de 4h, ~7 dias).
+
+Sinal de **contexto/regime** (`acao: "OBSERVAR"`, estilo `MACRO`, símbolo
+`"MERCADO"` — mesmo padrão do sinal de dominância/altseason e do ranking de
+força relativa), calculado uma vez por rodada de varredura completa a
+partir do 4h do BTC — não é gatilho de entrada, é uma leitura de pano de
+fundo pra calibrar a convicção nos outros sinais.
+
 Dispara só na vela em que o cruzamento acontece de verdade — mesma lógica
 de "primeiro toque" usada nos sinais de RSI — não fica repetindo enquanto
 a relação entre as médias continua a mesma. Cruzamento pra cima = viés de
