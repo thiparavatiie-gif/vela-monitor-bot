@@ -1356,3 +1356,33 @@ implementado em 22/09/2026 — ver acima.
   formal commitada neste repo (os "testes novos" de itens anteriores eram
   scripts ad-hoc de sessão, não arquivos versionados) — validação feita da
   mesma forma, por scripts ad-hoc não commitados.
+- 23/09/2026 (mesmo dia, sessão seguinte): processada mais uma live do
+  Diego (repique via escada de sobrevenda 15m/30m/1h no BTC, ao vivo).
+  Maior parte já coberta pelo bot (escada de reteste, padrão de
+  equilíbrio, EMA12/26 como referência — o próprio Diego citou usar só
+  "médias 12, 26, médias 200, RSI e volume", validando o estilo do bot).
+  Dois pontos genuinamente novos identificados e **✅ IMPLEMENTADOS**:
+  (1) ele citou o tempo gráfico de **6 horas** especificamente como onde o
+  padrão de equilíbrio + suporte na EMA12 fica "muito nítido" — o bot só
+  rodava esse sinal no 4h; `check_range_market`/`diagnose_range_market`
+  agora recebem `timeframe_label` (default "4h", compatível com todo
+  código existente) e passam a rodar também no 6h
+  (`_BYBIT_INTERVAL_MAP["6h"] = "360"`, novo). (2) a tese de "distribuição
+  de capital saudável": "enquanto o Bitcoin estiver corrigindo e altcoins
+  estiverem subindo... não tem cenário de medo... é distribuição de
+  capital... mercado apto ao risco" vs. "se o BTC ficar lateral e as
+  altcoins começarem a perder as mínimas... a galera tá começando a ficar
+  com pânico" — novo sinal de contexto `check_saude_mercado_lateral`
+  (BTC em equilíbrio no 4h + maioria clara de alts do watchlist fazendo
+  nova máxima local = leitura saudável; maioria perdendo mínima recente =
+  alerta de medo), distinto de `check_dominance_altseason` (retorno
+  acumulado) e `check_rotacao_antecipada_dominancia` (exaustão de RSI no
+  topo do BTC). Reaproveita os candles diários já buscados por
+  `compute_market_returns` (nova função auxiliar `_alt_estrutura_recente`)
+  sem chamada extra à API. Ver detalhe completo no README. Validado com
+  cenários sintéticos: maioria forte dispara leitura saudável, maioria
+  fraca dispara alerta de medo, cenário misto/poucas alts/BTC não parado
+  corretamente não dispara nada; `check_range_market` com `timeframe_label`
+  validado nos dois tempos gráficos (4h e 6h). Sem suíte de testes formal
+  commitada neste repo — validação por scripts ad-hoc não commitados, como
+  no item anterior.

@@ -677,7 +677,7 @@ API_SLEEP = 0.2   # pausa entre chamadas à Bybit (respeita rate limit)
 # pro código que a API v5 da Bybit espera; "2d" e "3d" são caso especial.
 _BYBIT_INTERVAL_MAP = {
     "5m": "5", "15m": "15", "30m": "30", "1h": "60", "2h": "120",
-    "4h": "240", "12h": "720", "1d": "D", "1w": "W", "1M": "M",
+    "4h": "240", "6h": "360", "12h": "720", "1d": "D", "1w": "W", "1M": "M",
 }
 
 # A Bybit organiza os mercados em categorias (spot, linear = contrato
@@ -3334,22 +3334,56 @@ def pct_return(candles_d, days=DOMINANCE_LOOKBACK_DAYS):
     return (end - start) / start * 100
 
 
+MARKET_HEALTH_ALT_LOOKBACK_DAYS = DOMINANCE_LOOKBACK_DAYS  # mesma janela do retorno BTC x alts
+MARKET_HEALTH_MIN_ALTS = 3            # mínimo de alts com dado suficiente pra dar um veredito
+MARKET_HEALTH_MAJORITY_PCT = 0.6      # 60%+ das alts numa mesma direção pra considerar "maioria clara"
+
+
+def _alt_estrutura_recente(candles, lookback=MARKET_HEALTH_ALT_LOOKBACK_DAYS):
+    """
+    "forte" se a vela mais recente fez nova máxima acima dos últimos
+    `lookback` candles sem perder a mínima deles; "fraca" se perdeu a
+    mínima recente sem fazer nova máxima; "neutra" nos outros casos (fez
+    as duas coisas, ou nenhuma). Usado pelo sinal de saúde do mercado
+    (`check_saude_mercado_lateral`) pra ler se as altcoins estão segurando
+    estrutura ou perdendo suporte enquanto o BTC fica parado.
+    """
+    if len(candles) < lookback + 1:
+        return None
+    recentes = candles[-(lookback + 1):-1]
+    atual = candles[-1]
+    topo_recente = max(c["high"] for c in recentes)
+    fundo_recente = min(c["low"] for c in recentes)
+    nova_maxima = atual["high"] > topo_recente
+    perdeu_minima = atual["low"] < fundo_recente
+    if nova_maxima and not perdeu_minima:
+        return "forte"
+    if perdeu_minima and not nova_maxima:
+        return "fraca"
+    return "neutra"
+
+
 def compute_market_returns(watchlist):
     """
     Calcula o retorno do BTC e a média de retorno das alts do watchlist nos
     últimos DOMINANCE_LOOKBACK_DAYS dias. Centralizado aqui porque tanto o
     check de dominância quanto o termômetro de fase de ciclo (mais abaixo)
     e o ranking de força relativa (mais abaixo também) precisam desses
-    números, e assim evita buscar tudo de novo em cada um.
+    números, e assim evita buscar tudo de novo em cada um. Também aproveita
+    os mesmos candles diários já buscados pra classificar a estrutura
+    recente de cada alt (`_alt_estrutura_recente`) — sem chamada extra à
+    API — usado pelo sinal de saúde do mercado (`check_saude_mercado_lateral`).
 
-    Retorna (btc_return, avg_alt_return, alt_returns) — `alt_returns` é a
-    lista individual [(symbol, retorno_pct), ...] de cada moeda que deu
-    pra calcular, pra quem precisar rankear moeda a moeda (não só a média).
+    Retorna (btc_return, avg_alt_return, alt_returns, alt_estruturas) —
+    `alt_returns` é a lista individual [(symbol, retorno_pct), ...] de cada
+    moeda que deu pra calcular, pra quem precisar rankear moeda a moeda (não
+    só a média); `alt_estruturas` é [(symbol, "forte"|"fraca"|"neutra"), ...].
     """
     btc_candles = fetch_klines("BTCUSDT", "1d", DOMINANCE_LOOKBACK_DAYS + 5)
     btc_return = pct_return(btc_candles)
 
     alt_returns = []
+    alt_estruturas = []
     for symbol in watchlist:
         if symbol == "BTCUSDT":
             continue
@@ -3358,11 +3392,14 @@ def compute_market_returns(watchlist):
             r = pct_return(c)
             if r is not None:
                 alt_returns.append((symbol, r))
+            estrutura = _alt_estrutura_recente(c)
+            if estrutura is not None:
+                alt_estruturas.append((symbol, estrutura))
         except Exception:
             continue
     avg_alt_return = (sum(r for _, r in alt_returns) / len(alt_returns)) if alt_returns else None
 
-    return btc_return, avg_alt_return, alt_returns
+    return btc_return, avg_alt_return, alt_returns, alt_estruturas
 
 
 def check_dominance_altseason(btc_return, avg_alt_return):
@@ -4024,6 +4061,96 @@ def check_rotacao_antecipada_dominancia(btc_candles_4h, btc_return, avg_alt_retu
     }
 
 
+def check_saude_mercado_lateral(btc_candles, alt_estruturas):
+    """
+    Item novo motivado por uma live do Diego (23/09/2026): "enquanto o
+    Bitcoin estiver corrigindo e altcoins estiverem subindo... você não tem
+    um cenário de medo, de pânico... é só uma distribuição de capital.
+    Dinheiro sai do BTC e busca outros ativos... isso significa que o
+    mercado tá apto ao risco e que o mercado tá enxergando um bull market
+    forte." E o inverso: "Se o BTC ficar lateral e as altcoins começarem a
+    cair e perder as mínimas, as altcoins fortes, aí você começa a imaginar
+    que a galera tá começando a ficar com pânico."
+
+    Diferente de `check_dominance_altseason` (retorno acumulado de
+    DOMINANCE_LOOKBACK_DAYS dias, dispara em qualquer cenário de BTC) e de
+    `check_rotacao_antecipada_dominancia` (depende do BTC mostrar exaustão
+    de RSI perto do topo), esse aqui exige o BTC especificamente PARADO —
+    em padrão de equilíbrio no 4h (mesma detecção de `check_range_market`,
+    mas sem exigir posição perto de borda nenhuma, só a amplitude) — e lê a
+    ESTRUTURA recente das alts (nova máxima local vs. perda de mínima
+    recente, via `_alt_estrutura_recente`), não o retorno acumulado. É um
+    sinal de CONTEXTO (acao "OBSERVAR", sem entrada/stop/alvo).
+    """
+    if not btc_candles or not alt_estruturas:
+        return None
+    if len(alt_estruturas) < MARKET_HEALTH_MIN_ALTS:
+        return None
+    if len(btc_candles) < RANGE_LOOKBACK:
+        return None
+
+    window = btc_candles[-RANGE_LOOKBACK:]
+    range_high = max(c["high"] for c in window)
+    range_low = min(c["low"] for c in window)
+    if range_low <= 0 or range_high <= range_low:
+        return None
+    range_pct = (range_high - range_low) / range_low
+    if range_pct > RANGE_MAX_PCT:
+        return None  # BTC não está parado -- esse sinal não se aplica agora
+
+    fortes = [s for s, e in alt_estruturas if e == "forte"]
+    fracas = [s for s, e in alt_estruturas if e == "fraca"]
+    total = len(alt_estruturas)
+
+    if len(fortes) / total >= MARKET_HEALTH_MAJORITY_PCT:
+        titulo = "BTC em equilíbrio + altcoins fortes — mercado saudável, sem sinal de pânico"
+        explicacao = (
+            f"O BTC está em padrão de equilíbrio no 4h ({range_pct * 100:.1f}% de amplitude), mas "
+            f"{len(fortes)} de {total} altcoins do watchlist estão fazendo nova máxima local dos "
+            f"últimos {MARKET_HEALTH_ALT_LOOKBACK_DAYS} dias sem perder a mínima recente "
+            f"({', '.join(s.replace('USDT', '') for s in fortes)}). Como o Diego descreveu: ninguém "
+            f"compra altcoin em meio a pânico — só compram quando enxergam potencial de continuação "
+            f"de alta. BTC parado com dinheiro girando pras altcoins é distribuição de capital "
+            f"saudável, não sinal de reversão."
+        )
+        aviso = (
+            "Sinal de CONTEXTO (sem entrada/stop/alvo) — é uma leitura de saúde do mercado, não uma "
+            "recomendação de compra."
+        )
+    elif len(fracas) / total >= MARKET_HEALTH_MAJORITY_PCT:
+        titulo = "BTC em equilíbrio + altcoins perdendo mínimas — possível medo se formando"
+        explicacao = (
+            f"O BTC está em padrão de equilíbrio no 4h ({range_pct * 100:.1f}% de amplitude), e "
+            f"{len(fracas)} de {total} altcoins do watchlist já perderam a mínima dos últimos "
+            f"{MARKET_HEALTH_ALT_LOOKBACK_DAYS} dias sem fazer nova máxima "
+            f"({', '.join(s.replace('USDT', '') for s in fracas)}). Como o Diego descreveu: se o BTC "
+            f"ficar lateral e as altcoins fortes começarem a perder as mínimas, é sinal de que a "
+            f"galera está começando a ficar com medo e tirar dinheiro — diferente do cenário saudável "
+            f"de rotação de capital."
+        )
+        aviso = (
+            "Sinal de CONTEXTO (sem entrada/stop/alvo) — é um alerta de possível mudança de humor do "
+            "mercado, não uma confirmação de reversão."
+        )
+    else:
+        return None  # misto, sem maioria clara -- não dá pra afirmar nada
+
+    return {
+        "symbol": "MERCADO", "estilo": "MACRO", "acao": "OBSERVAR",
+        "titulo": titulo,
+        "timeframe": f"4h (BTC) + 1d ({MARKET_HEALTH_ALT_LOOKBACK_DAYS}d, alts)",
+        "detalhes": [
+            f"BTC em padrão de equilíbrio no 4h: {fmt_price(range_low)}–{fmt_price(range_high)} ({range_pct * 100:.1f}%)",
+            f"Altcoins fazendo nova máxima local ({len(fortes)}/{total}): "
+            + (', '.join(s.replace('USDT', '') for s in fortes) if fortes else "nenhuma"),
+            f"Altcoins perdendo mínima recente ({len(fracas)}/{total}): "
+            + (', '.join(s.replace('USDT', '') for s in fracas) if fracas else "nenhuma"),
+        ],
+        "explicacao": explicacao,
+        "aviso": aviso,
+    }
+
+
 # ----------------------------------------------------------------------------
 # SINAL 8 — PADRÃO DE EQUILÍBRIO (swing curto)
 # ----------------------------------------------------------------------------
@@ -4053,7 +4180,7 @@ def _range_consolidation_duration(candles, range_high, range_low):
     return RANGE_LOOKBACK + extra
 
 
-def check_range_market(symbol, candles):
+def check_range_market(symbol, candles, timeframe_label="4h"):
     """
     "O que fazer quando o mercado fica parado": em vez de precisar de uma
     tendência clara, procura uma faixa estreita (RANGE_MAX_PCT de amplitude)
@@ -4129,7 +4256,7 @@ def check_range_market(symbol, candles):
     return {
         "symbol": symbol, "estilo": "RANGE", "acao": acao,
         "titulo": titulo,
-        "timeframe": INTERVAL,
+        "timeframe": timeframe_label,
         "detalhes": [
             f"Preço agora: {fmt_price(price_now)} ({lado_txt})",
             f"Range dos últimos {RANGE_LOOKBACK} candles: {fmt_price(range_low)} – {fmt_price(range_high)} "
@@ -4813,7 +4940,7 @@ def diagnose_failed_break(candles):
     return None
 
 
-def diagnose_range_market(candles):
+def diagnose_range_market(candles, timeframe_label="4h"):
     if len(candles) < RANGE_LOOKBACK:
         return None
     window = candles[-RANGE_LOOKBACK:]
@@ -4828,9 +4955,9 @@ def diagnose_range_market(candles):
     posicao = (price_now - range_low) / (range_high - range_low)
     if RANGE_EDGE_ZONE_PCT < posicao < (1 - RANGE_EDGE_ZONE_PCT):
         return {
-            "tipo": "Padrão de equilíbrio",
+            "tipo": f"Padrão de equilíbrio ({timeframe_label})",
             "score": 0.5,
-            "texto": (f"Padrão de equilíbrio se formando ({range_pct * 100:.1f}% de amplitude, "
+            "texto": (f"Padrão de equilíbrio se formando no {timeframe_label} ({range_pct * 100:.1f}% de amplitude, "
                       f"{fmt_price(range_low)}-{fmt_price(range_high)}) — no meio da faixa, "
                       f"aguardando aproximar do fundo ou do topo pra ter entrada."),
         }
@@ -5792,6 +5919,27 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
     except Exception as e:
         print(f"  {symbol}: erro no check de mercado em consolidação ({e})")
 
+    # Padrão de equilíbrio também no 6h — live do Diego (23/09/2026) citou
+    # esse tempo gráfico especificamente como onde o padrão "fica muito
+    # nítido" com o preço segurando a EMA12; antes disso o bot só olhava 4h.
+    try:
+        candles_6h = fetch_klines(symbol, "6h", KLINES_LIMIT)
+    except Exception as e:
+        print(f"  {symbol}: erro ao buscar candles 6h ({e})")
+        candles_6h = []
+
+    if candles_6h:
+        try:
+            sig = check_range_market(symbol, candles_6h, timeframe_label="6h")
+            if sig:
+                sinais.append(sig)
+            else:
+                diag = diagnose_range_market(candles_6h, timeframe_label="6h")
+                if diag:
+                    diagnosticos.append({"symbol": symbol, **diag})
+        except Exception as e:
+            print(f"  {symbol}: erro no check de mercado em consolidação (6h) ({e})")
+
     try:
         sig = check_scalp_4h(symbol, candles_4h)
         if sig:
@@ -6731,10 +6879,10 @@ def main():
         print(f"[{datetime.now(timezone.utc).isoformat()}] Verificando dominância BTC/altseason "
               f"e termômetro de ciclo...")
         try:
-            btc_return, avg_alt_return, alt_returns = compute_market_returns(watchlist)
+            btc_return, avg_alt_return, alt_returns, alt_estruturas = compute_market_returns(watchlist)
         except Exception as e:
             print(f"  erro calculando retornos de mercado ({e})")
-            btc_return, avg_alt_return, alt_returns = None, None, []
+            btc_return, avg_alt_return, alt_returns, alt_estruturas = None, None, [], []
 
         try:
             dom_sig = check_dominance_altseason(btc_return, avg_alt_return)
@@ -6827,6 +6975,21 @@ def main():
                 print("  sem aviso antecipado de rotação BTC -> altcoins no momento")
         except Exception as e:
             print(f"  erro no aviso antecipado de rotação de dominância ({e})")
+
+        try:
+            saude_sig = check_saude_mercado_lateral(btc_candles_4h_regime, alt_estruturas)
+            if saude_sig:
+                encontrados += 1
+                houve_sinal_scan_completo = True
+                msg = format_signal_message(saude_sig)
+                print("-" * 60)
+                print(msg)
+                ok = send_telegram_message(msg)
+                print("  -> enviado pro Telegram" if ok else "  -> FALHOU ao enviar")
+            else:
+                print("  sem leitura clara de saúde do mercado (BTC parado + estrutura das alts) no momento")
+        except Exception as e:
+            print(f"  erro no check de saúde do mercado (BTC lateral + estrutura das alts) ({e})")
 
         print(f"[{datetime.now(timezone.utc).isoformat()}] Varredura da altcoin do dia "
               f"(pares contra BTC, não contra USDT)...")

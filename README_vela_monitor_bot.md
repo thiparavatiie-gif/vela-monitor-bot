@@ -1174,6 +1174,50 @@ um risco/retorno de pelo menos `MIN_REWARD_RISK_RATIO` — estendido o
 suficiente pra sustentar, já que a escala natural do alvo (4h) tende a ser
 bem menor que a escala do stop (diário).
 
+## Padrão de equilíbrio também no 6h (`check_range_market` generalizado)
+
+Motivado por uma live do Diego (23/09/2026): "se você olhar no tempo
+gráfico de 6 horas fica muito nítido a probabilidade de um padrão de
+equilíbrio, segurando a média de 12 períodos" — até aqui o bot só rodava
+esse sinal (item 8 acima) no 4h. `check_range_market`/`diagnose_range_market`
+agora recebem um `timeframe_label` (`"4h"` por padrão, sem quebrar nada que
+já existia) e passam a rodar também no 6h (`_BYBIT_INTERVAL_MAP["6h"] =
+"360"`, novo). Mesmos parâmetros de amplitude/zona de borda
+(`RANGE_LOOKBACK`, `RANGE_MAX_PCT`, `RANGE_EDGE_ZONE_PCT`) — no 6h,
+`RANGE_LOOKBACK` (20 candles) passa a cobrir uma janela maior (~5 dias, vs
+~3,3 dias no 4h).
+
+## Saúde do mercado: BTC parado + estrutura das altcoins (`check_saude_mercado_lateral`)
+
+Também motivado pela live de 23/09/2026, sobre "distribuição de capital":
+"enquanto o Bitcoin estiver corrigindo e altcoins estiverem subindo... você
+não tem um cenário de medo, de pânico... é só uma distribuição de capital
+[...] isso significa que o mercado tá apto ao risco e que o mercado tá
+enxergando um bull market forte." E o alerta inverso: "Se o BTC ficar
+lateral e as altcoins começarem a cair e perder as mínimas, as altcoins
+fortes, aí você começa a imaginar que a galera tá começando a ficar com
+pânico."
+
+Sinal de **contexto** (`acao` "OBSERVAR", sem entrada/stop/alvo, como os
+outros sinais de dominância). Diferente de `check_dominance_altseason`
+(retorno acumulado de `DOMINANCE_LOOKBACK_DAYS` dias, dispara em qualquer
+cenário) e de `check_rotacao_antecipada_dominancia` (exige exaustão de RSI
+do BTC perto do topo), esse aqui:
+
+- Exige o BTC **parado**: padrão de equilíbrio no 4h (mesma detecção de
+  amplitude de `check_range_market`, sem exigir posição perto de borda).
+- Lê a **estrutura recente** de cada altcoin do watchlist
+  (`_alt_estrutura_recente`, reaproveitando os mesmos candles diários já
+  buscados por `compute_market_returns` pro cálculo de retorno — sem
+  chamada extra à API): "forte" se fez nova máxima local dos últimos
+  `MARKET_HEALTH_ALT_LOOKBACK_DAYS` dias sem perder a mínima recente,
+  "fraca" se perdeu a mínima sem fazer nova máxima, "neutra" nos outros
+  casos.
+- Só dispara com uma **maioria clara** (`MARKET_HEALTH_MAJORITY_PCT`, 60%)
+  de alts fortes (leitura saudável) ou fracas (alerta de medo), entre pelo
+  menos `MARKET_HEALTH_MIN_ALTS` (3) alts com dado suficiente — cenário
+  misto não gera sinal.
+
 ## Aviso importante
 
 Isso é um **scanner técnico baseado em regras** (fibonacci + estrutura +
