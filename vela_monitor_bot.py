@@ -4357,6 +4357,180 @@ def diagnose_confluence(candles_4h, candles_15m, candles_1h, candles_5m=None):
     }
 
 
+# ----------------------------------------------------------------------------
+# SINAL 10 — CONTINUAÇÃO DE TENDÊNCIA COM EMA12 DE SUPORTE (multi-timeframe)
+# ----------------------------------------------------------------------------
+#
+# Motivado pela operação de HNT que o Diego postou no grupo (23/09/2026):
+# "No semanal, o HNT veio buscar o fundo descendente e segurou bem na EMA
+# 12, ficando agora apoiado nessa média como suporte. No diário, a
+# estrutura também continua saudável, com o preço acima das EMAs 12 e 26 e
+# respeitando bem a EMA 12 do diário como suporte. No 4H, o preço também
+# começa a romper o equilíbrio para cima". Diferente dos sinais de reteste
+# (disparam em extremo de RSI, é leitura de reversão) e do cruzamento de
+# EMA semanal (`check_weekly_ema_cross`, evento raro e pontual — só a vela
+# em que a EMA cruza), esse aqui lê estrutura de tendência SAUDÁVEL em três
+# tempos gráficos ao mesmo tempo: semanal segurando a EMA12 como suporte,
+# diário acima de EMA12 e EMA26 (respeitando a EMA12 como suporte), e 4h
+# começando a romper um padrão de equilíbrio (mesma lógica de range de
+# `check_range_market`, mas exigindo o rompimento em vez de disparar perto
+# da borda) — confirmação de entrada de CONTINUAÇÃO de tendência, não de
+# reversão.
+
+EMA_SUPPORT_TREND_TOLERANCE = 0.03    # % de distância da EMA12 ainda considerado "respeitando como suporte"
+EMA_SUPPORT_LOOKBACK = 4              # candles (semanal/diário) olhados pra ver se tocou a EMA12 recentemente
+EMA_SUPPORT_BREAKOUT_MAX_PCT = 0.03   # rompimento do range no 4h só conta como "começando" até 3% além da borda
+
+
+def _price_respects_ema_support(candles, ema_period, lookback, direction, tolerance):
+    """
+    True se o preço está do lado certo da EMA agora (acima, se suporte de
+    alta; abaixo, se resistência de baixa) E, olhando os últimos `lookback`
+    candles, já testou/tocou essa EMA (chegou perto dela, dentro de
+    `tolerance`, ou encostou) — ou seja, "segurando"/"respeitando" a EMA
+    como suporte/resistência de verdade, não só "está do lado certo dela
+    agora" (o que poderia ser preço bem longe, sem nunca ter testado).
+    """
+    closes = [c["close"] for c in candles]
+    ema_now = compute_ema(closes, ema_period)
+    if ema_now is None or ema_now <= 0:
+        return False, None
+    price_now = candles[-1]["close"]
+    lado_certo = price_now >= ema_now if direction == "alta" else price_now <= ema_now
+    if not lado_certo:
+        return False, ema_now
+    janela = candles[-lookback:]
+    if direction == "alta":
+        tocou = any(c["low"] <= ema_now * (1 + tolerance) for c in janela)
+    else:
+        tocou = any(c["high"] >= ema_now * (1 - tolerance) for c in janela)
+    return tocou, ema_now
+
+
+def check_ema_support_trend(symbol, candles_w, candles_d, candles_4h):
+    """
+    Ver comentário da SINAL 10 acima. Direção candidata vem do rompimento
+    de range no 4h (o gatilho mais recente/sensível dos três tempos
+    gráficos) — só depois confirma se o semanal e o diário sustentam essa
+    mesma direção via EMA12/26.
+    """
+    if (len(candles_w) < WEEKLY_EMA_CROSS_FAST + EMA_SUPPORT_LOOKBACK
+            or len(candles_d) < WEEKLY_EMA_CROSS_SLOW + EMA_SUPPORT_LOOKBACK
+            or len(candles_4h) < RANGE_LOOKBACK + 1):
+        return None
+
+    window = candles_4h[-(RANGE_LOOKBACK + 1):-1]
+    range_high = max(c["high"] for c in window)
+    range_low = min(c["low"] for c in window)
+    if range_low <= 0 or range_high <= range_low:
+        return None
+    range_pct = (range_high - range_low) / range_low
+    if range_pct > RANGE_MAX_PCT:
+        return None
+
+    price_4h = candles_4h[-1]["close"]
+    if range_high < price_4h <= range_high * (1 + EMA_SUPPORT_BREAKOUT_MAX_PCT):
+        direction = "alta"
+    elif range_low > price_4h >= range_low * (1 - EMA_SUPPORT_BREAKOUT_MAX_PCT):
+        direction = "baixa"
+    else:
+        return None  # ainda dentro do range, ou rompeu longe demais — não é mais "começando"
+
+    tocou_semanal, ema12_w = _price_respects_ema_support(
+        candles_w, WEEKLY_EMA_CROSS_FAST, EMA_SUPPORT_LOOKBACK, direction, EMA_SUPPORT_TREND_TOLERANCE)
+    if not tocou_semanal:
+        return None
+
+    tocou_diario, ema12_d = _price_respects_ema_support(
+        candles_d, WEEKLY_EMA_CROSS_FAST, EMA_SUPPORT_LOOKBACK, direction, EMA_SUPPORT_TREND_TOLERANCE)
+    if not tocou_diario:
+        return None
+
+    closes_d = [c["close"] for c in candles_d]
+    ema26_d = compute_ema(closes_d, WEEKLY_EMA_CROSS_SLOW)
+    if ema26_d is None or ema26_d <= 0:
+        return None
+    price_d = candles_d[-1]["close"]
+    estrutura_diaria_ok = price_d >= ema26_d if direction == "alta" else price_d <= ema26_d
+    if not estrutura_diaria_ok:
+        return None
+
+    range_height = range_high - range_low
+    lookback_d = candles_d[-EMA_SUPPORT_LOOKBACK:]
+    # O alvo técnico natural aqui (extensão do range do 4h) costuma ser bem
+    # menor em escala que o stop (ancorado no fundo/topo diário) — como o
+    # próprio Diego não deu um alvo nessa operação, só o stop, o alvo usa a
+    # extensão do range quando ela já sustenta um risco/retorno decente, e
+    # estende mais quando não sustenta, pra não sugerir uma entrada com
+    # risco/retorno ruim por causa só da escala entre os dois tempos gráficos.
+    if direction == "alta":
+        acao = "COMPRAR"
+        # stop abaixo do fundo diário recente — igual à lógica do Diego na
+        # própria operação ("stop abaixo de 0,45, que fica abaixo do fundo
+        # do diário"), não abaixo da EMA26 (que pode estar bem mais longe)
+        fundo_diario = min(c["low"] for c in lookback_d)
+        stop = avoid_round_number_stop(fundo_diario * 0.99, "compra")
+        risco = abs(price_4h - stop)
+        alvo = max(range_high + range_height, price_4h + risco * MIN_REWARD_RISK_RATIO * 1.15)
+        lado_semanal = "apoiado na EMA12 semanal como suporte"
+        lado_diario = "acima das EMAs 12 e 26 diárias, respeitando a EMA12 como suporte"
+        lado_4h = "começando a romper o padrão de equilíbrio do 4h para cima"
+    else:
+        acao = "VENDER"
+        topo_diario = max(c["high"] for c in lookback_d)
+        stop = avoid_round_number_stop(topo_diario * 1.01, "venda")
+        risco = abs(stop - price_4h)
+        alvo = min(range_low - range_height, price_4h - risco * MIN_REWARD_RISK_RATIO * 1.15)
+        lado_semanal = "apoiado na EMA12 semanal como resistência"
+        lado_diario = "abaixo das EMAs 12 e 26 diárias, respeitando a EMA12 como resistência"
+        lado_4h = "começando a romper o padrão de equilíbrio do 4h para baixo"
+
+    checklist = [
+        (f"Semanal {lado_semanal} (EMA12 = {fmt_price(ema12_w)})", True),
+        (f"Diário {lado_diario} (EMA12 = {fmt_price(ema12_d)}, EMA26 = {fmt_price(ema26_d)})", True),
+        (f"4h {lado_4h} (range {fmt_price(range_low)}–{fmt_price(range_high)}, "
+         f"{range_pct * 100:.1f}% de amplitude)", True),
+    ]
+
+    return {
+        "symbol": symbol, "estilo": "SWING", "acao": acao,
+        "titulo": "Continuação de tendência — EMA12 de suporte multi-timeframe",
+        "timeframe": "1w + 1D + 4h",
+        "detalhes": [
+            f"Preço agora (4h): {fmt_price(price_4h)}",
+            f"Semanal: {lado_semanal} (EMA12 = {fmt_price(ema12_w)})",
+            f"Diário: {lado_diario} (EMA12 = {fmt_price(ema12_d)}, EMA26 = {fmt_price(ema26_d)})",
+            f"4h: {lado_4h}",
+            f"Alvo técnico (risco/retorno mínimo de 1:{MIN_REWARD_RISK_RATIO * 1.15:.1f}): {fmt_price(alvo)}",
+            f"Stop sugerido: {fmt_price(stop)}",
+        ],
+        "checklist": checklist,
+        "entry_price": price_4h, "target_price": alvo, "stop_price": stop,
+        "resumo": (
+            f"Estrutura saudável nos três tempos gráficos (semanal, diário e 4h) com "
+            f"EMA12 segurando como {'suporte' if direction == 'alta' else 'resistência'} — "
+            f"{lado_4h}."
+        ),
+        "explicacao": (
+            f"Esse é o tipo de leitura top-down que o Diego fez na operação de HNT "
+            f"(23/09/2026): em vez de esperar um extremo de RSI ou uma reversão, "
+            f"confirma que a tendência já em curso está saudável em três tempos "
+            f"gráficos ao mesmo tempo — {_fmt_symbol(symbol)} está {lado_semanal} no "
+            f"semanal, {lado_diario} no diário, e no 4h {lado_4h}. Quando os três se "
+            f"alinham, é leitura de CONTINUAÇÃO da tendência maior, não de reversão — "
+            f"diferente dos sinais de reteste/pullback (que buscam extremo de RSI ou "
+            f"correção de Fibonacci) e do cruzamento de EMA semanal (que é um evento "
+            f"pontual e raro, só a vela em que as médias cruzam)."
+        ),
+        "aviso": (
+            "Sinal de continuação de tendência com posição menor, como o próprio Diego "
+            "fez ('pegando uma posição pequena aqui') — a confirmação vem de estrutura, "
+            "não de um extremo estatístico, então o risco/retorno tende a ser mais "
+            "moderado que um sinal de reversão."
+        ),
+    }
+
+
 def _fmt_candle_time(candles, idx):
     """Data/hora (UTC) de abertura de um candle, pra dar contexto de 'quando' num nível técnico."""
     try:
@@ -5709,6 +5883,13 @@ def analyze_symbol(symbol, tier=None, market_trend="neutra"):
                     diagnosticos.append({"symbol": symbol, **diag})
         except Exception as e:
             print(f"  {symbol}: erro no check de reversão leve ({e})")
+
+        try:
+            sig = check_ema_support_trend(symbol, candles_w, candles_d, candles_4h)
+            if sig:
+                sinais.append(sig)
+        except Exception as e:
+            print(f"  {symbol}: erro no check de continuação de tendência com EMA de suporte ({e})")
 
     try:
         sig = check_retest_4h(symbol, candles_4h, candles_w)

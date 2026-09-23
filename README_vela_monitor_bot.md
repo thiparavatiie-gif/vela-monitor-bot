@@ -1137,6 +1137,43 @@ etc.) que valesse a pena integrar — diferente do contexto de guerra, que
 usa a NewsAPI (já integrada por outro motivo). Fica documentado aqui como
 decisão consciente, não como lacuna esquecida.
 
+## Continuação de tendência com EMA12 de suporte multi-timeframe (`check_ema_support_trend`)
+
+Motivado por uma operação real de HNT que o Diego postou no grupo
+(23/09/2026): "No semanal, o HNT veio buscar o fundo descendente e segurou
+bem na EMA 12, ficando agora apoiado nessa média como suporte. No diário,
+a estrutura também continua saudável, com o preço acima das EMAs 12 e 26 e
+respeitando bem a EMA 12 do diário como suporte. No 4H, o preço também
+começa a romper o equilíbrio para cima" — stop dele abaixo do fundo diário,
+sem alvo definido, "pegando uma posição pequena".
+
+Diferente do resto do bot: os sinais de reteste (escada de fundo
+ascendente) disparam em extremo de RSI — leitura de **reversão** — e o
+cruzamento de EMA semanal (`check_weekly_ema_cross`) é um evento pontual e
+raro (só a vela em que as médias cruzam). Esse sinal aqui lê estrutura de
+tendência **saudável** e sustentada em três tempos gráficos ao mesmo
+tempo — uma confirmação de **continuação**, não de reversão:
+
+- **Semanal**: preço do lado certo da EMA12 agora, e já testou essa EMA
+  (encostou ou chegou perto, dentro de `EMA_SUPPORT_TREND_TOLERANCE`, 3%)
+  nos últimos `EMA_SUPPORT_LOOKBACK` candles — "segurando"/"respeitando"
+  de verdade, não só "está acima dela por acaso".
+- **Diário**: mesma checagem de suporte/resistência na EMA12, mais preço
+  do lado certo da EMA26 — a "estrutura saudável" que o Diego descreve.
+- **4h**: padrão de equilíbrio (mesma detecção de range de
+  `check_range_market`, `RANGE_LOOKBACK`/`RANGE_MAX_PCT`) **rompido** —
+  diferente de `check_range_market`, que dispara **perto da borda** antes
+  do rompimento, esse aqui exige o preço já ter rompido a faixa, mas só
+  até `EMA_SUPPORT_BREAKOUT_MAX_PCT` (3%) além dela — "começando" a
+  romper, não um movimento já esticado.
+
+**Stop**: abaixo do fundo diário recente (acima do topo, pra venda) — igual
+à lógica do próprio Diego, não da EMA26 (que costuma estar bem mais longe).
+**Alvo**: extensão do range do 4h, ou — quando essa extensão não sustenta
+um risco/retorno de pelo menos `MIN_REWARD_RISK_RATIO` — estendido o
+suficiente pra sustentar, já que a escala natural do alvo (4h) tende a ser
+bem menor que a escala do stop (diário).
+
 ## Aviso importante
 
 Isso é um **scanner técnico baseado em regras** (fibonacci + estrutura +

@@ -1324,3 +1324,35 @@ implementado em 22/09/2026 — ver acima.
   Corrigido fixando deterministicamente um sinal de mercado no horário de
   relatório do teste, em vez de depender do passeio aleatório bater algum
   padrão por coincidência (mais robusto a sinais futuros).
+- 23/09/2026: o Thiago mandou uma operação real do robô do Diego em HNT
+  (texto de análise + print do HNTUSDT 1D) — "No semanal, o HNT veio
+  buscar o fundo descendente e segurou bem na EMA 12, ficando agora
+  apoiado nessa média como suporte. No diário, a estrutura também continua
+  saudável, com o preço acima das EMAs 12 e 26 e respeitando bem a EMA 12
+  do diário como suporte. No 4H, o preço também começa a romper o
+  equilíbrio para cima", stop abaixo do fundo diário, posição pequena, sem
+  alvo definido. Estudado contra os sinais já existentes do bot
+  (`check_weekly_ema_cross`, `check_confluence`/`_confluence_fatores`,
+  `check_pullback`, `check_range_market`, escada de reteste) — nenhum
+  cobre "preço respeitando EMA12 como suporte em vários tempos gráficos ao
+  mesmo tempo, como confirmação de continuação de tendência": os mais
+  próximos são todos baseados em cruzamento pontual, RSI extremo ou
+  Fibonacci, não em estrutura sustentada. **✅ IMPLEMENTADO**
+  (`check_ema_support_trend` + `_price_respects_ema_support`, 23/09/2026,
+  ver detalhe completo no README) — checa semanal (EMA12 de suporte/
+  resistência testada e respeitada), diário (mesma checagem de EMA12, mais
+  preço do lado certo da EMA26) e 4h (rompimento — não só proximidade —
+  do padrão de equilíbrio de `check_range_market`, limitado a
+  `EMA_SUPPORT_BREAKOUT_MAX_PCT` além da borda, pra pegar só o "começando a
+  romper"). Stop no fundo/topo diário recente (igual à lógica do Diego, não
+  na EMA26, que ficaria longe demais); alvo pela extensão do range do 4h,
+  estendido quando necessário pra manter risco/retorno mínimo (o stop, em
+  escala diária, tende a ser bem mais largo que a extensão do range em
+  4h). Validado com cenários sintéticos: caso positivo (réplica do setup do
+  HNT) dispara COMPRAR com risco/retorno 1:2,3 (acima do mínimo de 1:2);
+  três controles negativos (semanal nunca testou a EMA12, diário quebrou
+  abaixo da EMA26, 4h ainda dentro do range sem rompimento) corretamente
+  não disparam; caso espelho de venda também validado. Sem suíte de testes
+  formal commitada neste repo (os "testes novos" de itens anteriores eram
+  scripts ad-hoc de sessão, não arquivos versionados) — validação feita da
+  mesma forma, por scripts ad-hoc não commitados.
